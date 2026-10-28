@@ -1,0 +1,84 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Write local.properties
+        env:
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          LISTEN_TOGETHER_SERVER: ${{ secrets.LISTEN_TOGETHER_SERVER }}
+        run: |
+          : > local.properties
+          echo "LASTFM_API_KEY=${LASTFM_API_KEY}" >> local.properties
+          echo "LASTFM_SECRET=${LASTFM_SECRET}" >> local.properties
+          if [ -n "${LISTEN_TOGETHER_SERVER}" ]; then
+            echo "LISTEN_TOGETHER_SERVER=${LISTEN_TOGETHER_SERVER}" >> local.properties
+          fi
+
+      - name: Set up signing (only when keystore secret is present)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "${KEYSTORE_BASE64}" ]; then
+            printf '%s' "${KEYSTORE_BASE64}" | base64 -d > release.jks
+            {
+              echo "storeFile=release.jks"
+              echo "storePassword=${KEYSTORE_PASSWORD}"
+              echo "keyAlias=${KEY_ALIAS}"
+              echo "keyPassword=${KEY_PASSWORD}"
+            } > keystore.properties
+            echo "SIGNED_RELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "SIGNED_RELEASE=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build
+        run: |
+          if [ "$SIGNED_RELEASE" = "true" ]; then
+            ./gradlew --no-daemon assembleProdRelease -Pbitchord.bundleWear=false
+          else
+            ./gradlew --no-daemon assembleDevDebug -Pbitchord.bundleWear=false
+          fi
+
+      - name: Collect APKs
+        run: |
+          mkdir -p out
+          find app/build/outputs/apk -name '*.apk' -exec cp {} out/ \;
+          ls -lh out
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: muaicallo-apk
+          path: out/*.apk
+          if-no-files-found: error

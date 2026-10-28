@@ -182,7 +182,7 @@ object AppSettings {
      * path already did on an uncapped connection, and [migrateDownloadQuality]
      * keeps it that way for the people it didn't.
      */
-    val downloadQuality = MutableStateFlow(DownloadQuality.LOSSLESS)
+    val downloadQuality = MutableStateFlow(DownloadQuality.HIGH)
 
     /**
      * Refuse to start a download while the connection charges for data.
@@ -192,22 +192,19 @@ object AppSettings {
      * tethered hotspot is Wi-Fi that costs money, and an unmetered home
      * connection is worth using whether or not it arrives over Wi-Fi.
      *
-     * On by default, and that is a deliberate change of behaviour for anyone
-     * updating. [downloadQuality] defaulting to Lossless means a tap that used
-     * to spend four megabytes of mobile data can now spend thirty-five, and of
-     * the two ways to get that wrong — silently overspending a data plan, or
-     * refusing with a sentence naming the switch that would allow it — only the
-     * second is recoverable by the person it happens to.
+     * Off by default so a download starts on whatever connection is in hand;
+     * the switch is still there for anyone who wants to protect a metered plan.
      */
-    val wifiOnlyDownloads = MutableStateFlow(true)
+    val wifiOnlyDownloads = MutableStateFlow(false)
 
     /**
-     * Keep ordinary downloads in Music/BitChord where other music apps can see
-     * them. Off (the default) keeps downloads in this app's private storage.
-     * HLS downloads always stay private because they are a playlist package,
-     * not one portable audio file.
+     * Keep ordinary downloads in Music/allomusic where other music apps can see
+     * them. On by default so a completed download is where a user expects to
+     * find it; off keeps downloads in this app's private storage. HLS
+     * downloads always stay private because they are a playlist package, not
+     * one portable audio file.
      */
-    val exportDownloads = MutableStateFlow(false)
+    val exportDownloads = MutableStateFlow(true)
 
     /** Whether the active network charges for data. `null` while offline. */
     val meteredConnection = MutableStateFlow<Boolean?>(null)
@@ -814,8 +811,8 @@ object AppSettings {
         ).coerceIn(MIN_UPGRADE_LENGTH_SLACK_SECONDS, MAX_UPGRADE_LENGTH_SLACK_SECONDS)
         migrateDownloadQuality()
         downloadQuality.value = readDownloadQuality()
-        wifiOnlyDownloads.value = prefs.getBoolean(KEY_WIFI_ONLY_DOWNLOADS, true)
-        exportDownloads.value = prefs.getBoolean(KEY_EXPORT_DOWNLOADS, false)
+        wifiOnlyDownloads.value = prefs.getBoolean(KEY_WIFI_ONLY_DOWNLOADS, false)
+        exportDownloads.value = prefs.getBoolean(KEY_EXPORT_DOWNLOADS, true)
         crossfadeSeconds.value = prefs.getInt(KEY_CROSSFADE, 0)
         smartFadeEnabled.value = prefs.getBoolean(KEY_SMART_FADE, false)
         automixPerformanceMode.value = runCatching {
@@ -1023,15 +1020,15 @@ object AppSettings {
      */
     private fun migrateDownloadQuality() {
         if (prefs.contains(KEY_QUALITY_DOWNLOAD)) return
-        // Was derived from the old `losslessAudio` switch, which defaulted to
-        // on; LOSSLESS is what that produced for all but the few installs that
-        // had turned it off, and is the default a fresh install gets anyway.
-        prefs.edit().putString(KEY_QUALITY_DOWNLOAD, DownloadQuality.LOSSLESS.name).apply()
+        // HIGH is the default a fresh install gets: it resolves straight from
+        // YouTube, so the first download works even before any lossless source
+        // is configured. Lossless remains one tap away in Settings.
+        prefs.edit().putString(KEY_QUALITY_DOWNLOAD, DownloadQuality.HIGH.name).apply()
     }
 
     private fun readDownloadQuality(): DownloadQuality {
-        val stored = prefs.getString(KEY_QUALITY_DOWNLOAD, null) ?: return DownloadQuality.LOSSLESS
-        return runCatching { DownloadQuality.valueOf(stored) }.getOrDefault(DownloadQuality.LOSSLESS)
+        val stored = prefs.getString(KEY_QUALITY_DOWNLOAD, null) ?: return DownloadQuality.HIGH
+        return runCatching { DownloadQuality.valueOf(stored) }.getOrDefault(DownloadQuality.HIGH)
     }
 
     /**

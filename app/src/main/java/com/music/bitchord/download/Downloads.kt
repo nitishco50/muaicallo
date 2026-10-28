@@ -22,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -859,21 +860,34 @@ object Downloads {
         _active.update { it + (id to DownloadState.Running(0f)) }
         DownloadSession.running(id, 0f)
 
-        try {
-            val plan = prepare(context, song)
-            // The manager is showing the row that was tapped, which for a music
-            // video is the wrong title and the wrong cover for the file actually
-            // being written. Corrected here rather than left to disagree with
-            // the notification and with the Downloads page afterwards.
-            DownloadSession.retitle(id, plan.track)
-            transfer(context, song, plan)
-        } catch (e: CancellationException) {
-            clear(id)
-            throw e
-        } catch (e: Exception) {
-            Log.w(TAG, "download failed for $id: ${e.message}", e)
-            fail(id, e.friendly())
+        var lastFailure: Exception? = null
+        for (attempt in 1..MAX_ATTEMPTS) {
+            try {
+                val plan = prepare(context, song)
+                // The manager is showing the row that was tapped, which for a
+                // music video is the wrong title and the wrong cover for the
+                // file actually being written. Corrected here rather than left
+                // to disagree with the notification and with the Downloads page
+                // afterwards.
+                DownloadSession.retitle(id, plan.track)
+                transfer(context, song, plan)
+                return@withContext
+            } catch (e: CancellationException) {
+                clear(id)
+                throw e
+            } catch (e: Exception) {
+                lastFailure = e
+                Log.w(TAG, "download attempt $attempt/$MAX_ATTEMPTS failed for $id: ${e.message}", e)
+                if (attempt < MAX_ATTEMPTS) {
+                    // Transient resolution and network faults are common on the
+                    // YouTube path; retrying here means a row that used to need
+                    // a manual tap now just finishes a few seconds later.
+                    _active.update { it + (id to DownloadState.Running(0f)) }
+                    delay(RETRY_BASE_DELAY_MS * attempt)
+                }
+            }
         }
+        fail(id, lastFailure?.friendly() ?: "Download failed")
     }
 
     /**
@@ -1358,6 +1372,12 @@ object Downloads {
      * waiting for a module and never be asked.
      */
     private const val SOURCE_LOOKUP_MS = 85_000L
+
+    /** How many times a failed track is tried before it is reported as failed. */
+    private const val MAX_ATTEMPTS = 3
+
+    /** Backoff between attempts; grows linearly so a dead connection is not hammered. */
+    private const val RETRY_BASE_DELAY_MS = 2_000L
 
     /**
      * The extensions a file in Music can carry that say, on their own, that a

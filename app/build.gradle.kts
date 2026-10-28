@@ -62,7 +62,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.music.bitchord"
+        applicationId = "allora.allomusic"
         // 26 keeps reach wide; real-time blur (RenderEffect) kicks in on API 31+,
         // Haze falls back to a translucent scrim below that.
         minSdk = 26
@@ -83,7 +83,7 @@ android {
         // Which release assets are this app's: the phone and TV APKs ship in
         // the same GitHub release, told apart by file name. See
         // AppUpdateChecker.apkAssetUrl.
-        buildConfigField("String", "UPDATE_APK_PREFIX", "\"BitChord-\"")
+        buildConfigField("String", "UPDATE_APK_PREFIX", "\"allomusic-\"")
     }
 
     splits {
@@ -91,7 +91,7 @@ android {
             isEnable = true
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86_64")
-            isUniversalApk = true
+            isUniversalApk = false
         }
     }
 
@@ -115,8 +115,8 @@ android {
     productFlavors {
         create("dev") {
             dimension = "env"
-            applicationId = "com.dev.bitchord"
-            resValue("string", "app_name", "BitChord Dev")
+            applicationId = "allora.allomusic.dev"
+            resValue("string", "app_name", "allomusic Dev")
         }
         create("prod") {
             dimension = "env"
@@ -165,13 +165,15 @@ android {
              * `benchmark` build type below before it ships.
              */
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Null without a keystore to sign with: the build then produces
-            // app-release-unsigned.apk instead of failing outright.
-            signingConfig = signingConfigs.findByName("release")
+            // Fall back to the debug key when no release keystore is
+            // configured, so CI can still produce an installable, minified
+            // APK instead of an unsigned one.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
         /*
          * The release build, installable next to the dev and prod apps: same R8,

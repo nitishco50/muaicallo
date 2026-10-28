@@ -1568,11 +1568,11 @@ fun SettingsScreen(
                         textDecoration = TextDecoration.Underline,
                     ),
                 )
-                withLink(LinkAnnotation.Url("https://github.com/kushagrasinghx/BitChord", linkStyles)) {
+                withLink(LinkAnnotation.Url("https://github.com/nitishco50/muaicallo", linkStyles)) {
                     append("GitHub")
                 }
                 append("  ")
-                withLink(LinkAnnotation.Url("https://github.com/kushagrasinghx", linkStyles)) {
+                withLink(LinkAnnotation.Url("https://github.com/nitishco50", linkStyles)) {
                     append("Developer")
                 }
                 append("  ")

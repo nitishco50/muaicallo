@@ -63,12 +63,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build
-        run: |
-          if [ "$SIGNED_RELEASE" = "true" ]; then
-            ./gradlew --no-daemon assembleProdRelease -Pbitchord.bundleWear=false
-          else
-            ./gradlew --no-daemon assembleDevDebug -Pbitchord.bundleWear=false
-          fi
+        run: ./gradlew --no-daemon assembleProdRelease -Pbitchord.bundleWear=false
 
       - name: Collect APKs
         run: |
@@ -79,6 +74,6 @@ jobs:
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: muaicallo-apk
+          name: allomusic-apk
           path: out/*.apk
           if-no-files-found: error

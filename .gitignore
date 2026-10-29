@@ -50,3 +50,8 @@ AGENTS.md
 
 # Claude Code session files (launch configs, worktrees)
 .claude/
+
+# Backend local config and uploaded artwork (never commit credentials/uploads)
+allomusic-panel/config.php
+allomusic-panel/uploads/icons/*
+!backend/uploads/icons/.gitkeep

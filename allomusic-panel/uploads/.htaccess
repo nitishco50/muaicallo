@@ -1,0 +1,17 @@
+Options -Indexes
+
+# Uploads are images only: refuse to execute anything (Apache/LiteSpeed).
+<FilesMatch "\.(php|phtml|phar|cgi|pl|py|sh)$">
+    SetHandler none
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag engine off
+</IfModule>

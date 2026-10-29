@@ -238,6 +238,13 @@
             </intent-filter>
         </activity>
 
+        <!-- allomusic account: email/password sign-in, sync and deletion. -->
+        <activity
+            android:name=".allo.AlloAccountActivity"
+            android:exported="false"
+            android:label="@string/allo_account"
+            android:theme="@style/Theme.BitChord" />
+
         <!--
           The launcher entries live on aliases, not on MainActivity, so the user can
           swap the home-screen icon by enabling one alias and disabling the others
@@ -417,6 +424,21 @@
             android:exported="true"
             android:icon="@mipmap/ic_pixel_glass_clear_dark"
             android:roundIcon="@mipmap/ic_pixel_glass_clear_dark"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- The artwork supplied for AlloMusic; selectable from the admin panel. -->
+        <activity-alias
+            android:name=".LauncherUserCustom"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_user_custom"
+            android:roundIcon="@mipmap/ic_user_custom_round"
             android:label="@string/app_name"
             android:targetActivity=".MainActivity">
             <intent-filter>

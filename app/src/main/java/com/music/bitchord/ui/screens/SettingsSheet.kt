@@ -37,6 +37,7 @@ import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BlurOff
@@ -121,6 +122,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.viewinterop.AndroidView
 import com.music.bitchord.AppIcon
+import com.music.bitchord.allo.AlloAccountActivity
+import com.music.bitchord.allo.AlloSession
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -1240,6 +1243,21 @@ fun SettingsScreen(
         }
 
         SearchableSettingsGroup(search, header = stringResource(R.string.your_data)) {
+            val accountTitle = stringResource(R.string.allo_account)
+            row(accountTitle, "account", "login", "sign in", "sync") {
+                SettingsRow(
+                    icon = Icons.Rounded.Person,
+                    title = accountTitle,
+                    subtitle = if (AlloSession.isSignedIn) {
+                        stringResource(R.string.allo_account_signed_in, AlloSession.email.orEmpty())
+                    } else {
+                        stringResource(R.string.allo_account_subtitle)
+                    },
+                    onClick = {
+                        context.startActivity(Intent(context, AlloAccountActivity::class.java))
+                    },
+                )
+            }
             val replayTitle = stringResource(R.string.replay)
             row(replayTitle, "stats", "history", "wrapped") {
                 SettingsRow(

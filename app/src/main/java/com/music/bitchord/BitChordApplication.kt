@@ -116,6 +116,12 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
             CoroutineScope(Dispatchers.IO).launch { Innertube.ensureSessionScope() }
         }
         AppSettings.init(this, authStore)
+        // The allomusic account and the server-owned app switches. The token is
+        // encrypted (see AlloSession); the config fetch is fire-and-forget so a
+        // slow network never delays the first frame, and a launcher-icon change
+        // is applied when it lands.
+        com.music.bitchord.allo.AlloSession.init(this)
+        com.music.bitchord.allo.AlloRemoteConfig.refresh(this)
         // Before anything resolves a track: an addon with `checkValidLossless`
         // is gated on this, and the gate reads "no" until it has looked.
         com.music.bitchord.playback.audio.LosslessOutput.init(this)

@@ -6,11 +6,21 @@ $schemaFile = __DIR__ . '/sql/schema.sql';
 $error = '';
 $done = false;
 
+$hasAdmins = 0;
 try {
-    $hasAdmins = (int) db()->query('SELECT COUNT(*) FROM admins')->fetchColumn();
+    db();
 } catch (Throwable $e) {
     $hasAdmins = -1;
-    $error = 'Database not reachable: ' . $e->getMessage();
+    $error = 'Database connection failed: ' . $e->getMessage();
+}
+if ($hasAdmins !== -1) {
+    try {
+        $hasAdmins = (int) db()->query('SELECT COUNT(*) FROM admins')->fetchColumn();
+    } catch (Throwable $e) {
+        // The tables are created by this installer, so a missing `admins`
+        // table means "not installed yet", not "database unreachable".
+        $hasAdmins = 0;
+    }
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasAdmins === 0) {
@@ -27,9 +37,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $hasAdmins === 0) {
     } else {
         try {
             $sql = (string) file_get_contents($schemaFile);
-            foreach (preg_split('/;\s*\n/', $sql) as $statement) {
+            // Strip comment-only lines first. Comments sit between statements,
+            // so splitting first and skipping chunks starting with `--` would
+            // silently drop the table that follows a header comment.
+            $sql = (string) preg_replace('/^\s*--.*$/m', '', $sql);
+            foreach (preg_split('/;\s*(?:\r?\n|$)/', $sql) ?: [] as $statement) {
                 $statement = trim($statement);
-                if ($statement !== '' && !str_starts_with($statement, '--')) {
+                if ($statement !== '') {
                     db()->exec($statement);
                 }
             }
@@ -60,15 +74,15 @@ function page_head(string $title): void
     <h1><span class="logo-dot"></span> allomusic</h1>
     <p class="muted">Admin panel installer</p>
 
-    <?php if ($hasAdmins > 0): ?>
+    <?php if ($done): ?>
+        <div class="alert ok">
+            <strong>Install complete.</strong> Delete <code>install.php</code> now, then sign in.
+        </div>
+        <a class="btn" href="admin/login.php">Open admin panel</a>
+    <?php elseif ($hasAdmins > 0): ?>
         <div class="alert ok">
             <strong>Already installed.</strong>
             An administrator account exists. Delete <code>install.php</code> from the server.
-        </div>
-        <a class="btn" href="admin/login.php">Open admin panel</a>
-    <?php elseif ($done): ?>
-        <div class="alert ok">
-            <strong>Install complete.</strong> Delete <code>install.php</code> now, then sign in.
         </div>
         <a class="btn" href="admin/login.php">Open admin panel</a>
     <?php else: ?>
@@ -88,7 +102,4 @@ function page_head(string $title): void
         <p class="muted small">Use PHP 8.1+ and edit <code>config.php</code> first. Never keep this file after setup.</p>
     <?php endif; ?>
 </main>
-<?php if ($error !== '' && $hasAdmins === -1): ?>
-    <main class="auth-card"><div class="alert err"><?= e($error) ?></div></main>
-<?php endif; ?>
 </body></html>

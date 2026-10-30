@@ -245,6 +245,13 @@
             android:label="@string/allo_account"
             android:theme="@style/Theme.BitChord" />
 
+        <!-- Mandatory first-run setup: account plus taste profile. -->
+        <activity
+            android:name=".allo.AlloSetupActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.BitChord" />
+
         <!--
           The launcher entries live on aliases, not on MainActivity, so the user can
           swap the home-screen icon by enabling one alias and disabling the others

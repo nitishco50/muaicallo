@@ -37,6 +37,78 @@ if (!empty($config['maintenance'])) {
 
 /* ------------------------------------------------------------------ helpers */
 
+/** Keeps the first-run profile bounded and shaped; the app sends free-form JSON. */
+function sanitize_preferences(mixed $raw): array
+{
+    if (!is_object($raw) && !is_array($raw)) {
+        return [];
+    }
+    $raw = (array) $raw;
+    $clean = [];
+
+    foreach (['regions', 'artists'] as $key) {
+        $values = $raw[$key] ?? [];
+        if (!is_array($values)) {
+            $values = [];
+        }
+        $out = [];
+        foreach ($values as $value) {
+            if (!is_string($value)) {
+                continue;
+            }
+            $value = substr(trim($value), 0, 80);
+            if ($value !== '' && !in_array($value, $out, true)) {
+                $out[] = $value;
+            }
+            if (count($out) >= 50) {
+                break;
+            }
+        }
+        $clean[$key] = $out;
+    }
+
+    $songs = [];
+    $rawSongs = $raw['songs'] ?? [];
+    if (!is_array($rawSongs)) {
+        $rawSongs = [];
+    }
+    foreach ($rawSongs as $song) {
+        if (!is_array($song)) {
+            continue;
+        }
+        $title = substr(trim((string) ($song['title'] ?? '')), 0, 160);
+        $artist = substr(trim((string) ($song['artist'] ?? '')), 0, 120);
+        $region = substr(trim((string) ($song['region'] ?? '')), 0, 40);
+        if ($title !== '') {
+            $songs[] = ['title' => $title, 'artist' => $artist, 'region' => $region];
+        }
+        if (count($songs) >= 50) {
+            break;
+        }
+    }
+    $clean['songs'] = $songs;
+
+    $gender = (string) ($raw['gender'] ?? '');
+    $clean['gender'] = in_array($gender, ['male', 'female', 'other', 'private'], true) ? $gender : '';
+    $time = (string) ($raw['listening_time'] ?? '');
+    $clean['listening_time'] = in_array($time, ['morning', 'afternoon', 'evening', 'night'], true) ? $time : '';
+    $age = (int) ($raw['age'] ?? 0);
+    $clean['age'] = ($age >= 13 && $age <= 100) ? $age : 0;
+    $clean['notifications'] = !empty($raw['notifications']);
+
+    return $clean;
+}
+
+function store_preferences(int $userId, array $prefs): void
+{
+    $json = json_encode($prefs, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $stmt = db()->prepare(
+        'INSERT INTO user_data (user_id, ns, json, updated_at) VALUES (?, "preferences", ?, ?)
+         ON DUPLICATE KEY UPDATE json = VALUES(json), updated_at = VALUES(updated_at)'
+    );
+    $stmt->execute([$userId, $json, now()]);
+}
+
 function issue_token(int $userId, string $deviceId, string $deviceName, string $appVersion): array
 {
     $token = random_token(32);
@@ -141,6 +213,14 @@ if ($action === 'register') {
 
     $userId = (int) $pdo->lastInsertId();
     track_device($userId, $body);
+    if (isset($body['preferences']) && (is_array($body['preferences']) || is_object($body['preferences']))) {
+        store_preferences($userId, sanitize_preferences($body['preferences']));
+        try {
+            signals_recompute($userId);
+        } catch (Throwable $e) {
+            error_log('allomusic register signals: ' . $e->getMessage());
+        }
+    }
     $token = issue_token($userId, body_str($body, 'device_id'), body_str($body, 'device_name'), body_str($body, 'app_version'));
 
     $stmt = $pdo->prepare('SELECT * FROM users WHERE id = ?');
@@ -331,6 +411,33 @@ if ($action === 'notifications') {
     api_ok(['notifications' => $stmt->fetchAll()]);
 }
 
+
+
+/* ------------------------------------------------------------ preferences */
+
+if ($action === 'preferences' && $method === 'GET') {
+    $user = require_api_user();
+    $stmt = $pdo->prepare('SELECT json, updated_at FROM user_data WHERE user_id = ? AND ns = "preferences" LIMIT 1');
+    $stmt->execute([$user['id']]);
+    $row = $stmt->fetch();
+    api_ok([
+        'preferences' => $row ? json_decode((string) $row['json'], true) : null,
+        'updated_at' => $row ? $row['updated_at'] : null,
+    ]);
+}
+
+if ($action === 'preferences' && $method === 'POST') {
+    $user = require_api_user();
+    $body = body_json();
+    $prefs = sanitize_preferences($body['preferences'] ?? []);
+    store_preferences((int) $user['id'], $prefs);
+    try {
+        signals_recompute((int) $user['id']);
+    } catch (Throwable $e) {
+        error_log('allomusic preferences signals: ' . $e->getMessage());
+    }
+    api_ok(['saved' => true, 'preferences' => $prefs]);
+}
 
 /* ----------------------------------------------------------------- events */
 

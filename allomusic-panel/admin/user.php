@@ -110,6 +110,14 @@ $notices = $notices->fetchAll();
 
 $signals = signals_fetch($id);
 
+$prefStmt = $pdo->prepare('SELECT json FROM user_data WHERE user_id = ? AND ns = "preferences" LIMIT 1');
+$prefStmt->execute([$id]);
+$prefJson = $prefStmt->fetchColumn();
+$preferences = $prefJson ? json_decode((string) $prefJson, true) : null;
+if (!is_array($preferences)) {
+    $preferences = null;
+}
+
 $recentEvents = $pdo->prepare(
     'SELECT type, title, artist, listen_ms, duration_ms, created_at
        FROM events WHERE user_id = ? ORDER BY id DESC LIMIT 30'
@@ -187,6 +195,42 @@ admin_header('User #' . $id, 'users');
     </table></div>
 </section>
 
+
+
+<?php if ($preferences): ?>
+<section class="card" style="margin-top:16px">
+    <h2>Setup preferences</h2>
+    <div class="kv">
+        <div>Age</div><div><?= e((string) ($preferences['age'] ?? '—')) ?></div>
+        <div>Gender</div><div><?= e((string) (($preferences['gender'] ?? '') ?: '—')) ?></div>
+        <div>Usually listens</div><div><?= e((string) (($preferences['listening_time'] ?? '') ?: '—')) ?></div>
+        <div>Notices</div><div><?= !empty($preferences['notifications']) ? 'on' : 'off' ?></div>
+    </div>
+    <?php if (!empty($preferences['regions'])): ?>
+        <h3 style="margin-top:16px">Regions</h3>
+        <p><?= e(implode(' · ', array_map('strval', (array) $preferences['regions']))) ?></p>
+    <?php endif; ?>
+    <?php if (!empty($preferences['artists'])): ?>
+        <h3 style="margin-top:16px">Artists</h3>
+        <p><?= e(implode(' · ', array_map('strval', (array) $preferences['artists']))) ?></p>
+    <?php endif; ?>
+    <?php if (!empty($preferences['songs'])): ?>
+        <h3 style="margin-top:16px">Songs</h3>
+        <div class="table-wrap"><table>
+            <thead><tr><th>Song</th><th>Artist</th><th>Region</th></tr></thead>
+            <tbody>
+            <?php foreach ((array) $preferences['songs'] as $song): ?>
+                <tr>
+                    <td><?= e((string) ($song['title'] ?? '')) ?></td>
+                    <td class="muted"><?= e((string) ($song['artist'] ?? '')) ?></td>
+                    <td class="small"><?= e((string) ($song['region'] ?? '')) ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table></div>
+    <?php endif; ?>
+</section>
+<?php endif; ?>
 
 <section class="card" style="margin-top:16px">
     <h2>Listening signals <span class="muted small">(<?= count($signals) ?>)</span></h2>

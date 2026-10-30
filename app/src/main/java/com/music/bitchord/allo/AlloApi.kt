@@ -111,11 +111,18 @@ object AlloApi {
 
     suspend fun config(): Result = call("config")
 
-    suspend fun register(email: String, password: String, name: String, device: Device): Result =
+    suspend fun register(
+        email: String,
+        password: String,
+        name: String,
+        device: Device,
+        preferences: JsonObject? = null,
+    ): Result =
         call("register", HttpMethod.Post, null, buildJsonObject {
             put("email", email)
             put("password", password)
             put("name", name)
+            if (preferences != null) put("preferences", preferences)
             device(device)
         })
 
@@ -150,6 +157,13 @@ object AlloApi {
         })
 
     suspend fun signals(token: String): Result = call("signals", token = token)
+
+    suspend fun preferences(token: String): Result = call("preferences", token = token)
+
+    suspend fun savePreferences(token: String, preferences: JsonObject): Result =
+        call("preferences", HttpMethod.Post, token, buildJsonObject {
+            put("preferences", preferences)
+        })
 
     suspend fun changePassword(token: String, current: String, next: String): Result =
         call("password", HttpMethod.Post, token, buildJsonObject {

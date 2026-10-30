@@ -65,8 +65,7 @@ fun AlloLoginGate() {
             Button(
                 onClick = {
                     context.startActivity(
-                        Intent(context, AlloAccountActivity::class.java)
-                            .putExtra(AlloAccountActivity.EXTRA_GATE, true),
+                        Intent(context, AlloSetupActivity::class.java),
                     )
                 },
             ) {

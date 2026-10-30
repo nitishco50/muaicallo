@@ -49,10 +49,11 @@ Admin panel and mobile API for the allomusic app, meant to live at
   custom artwork used as the in-app brand image.
 - **Notices** — broadcast or per-user messages, pulled by the app.
 - **Audit Log** — every admin action with IP and timestamp.
-- **Listening signals** — the user page shows 170+ derived signals (plays,
+- **Listening signals** — the user page shows 230+ derived signals (plays,
   completion/skip/like rates, per-hour and per-weekday buckets, top
   genres/artists/albums/tracks, streaks, device/app context) plus the most
-  recent raw events.
+  recent raw events, plus the first-run setup profile (age band, regions,
+  artists and favourite songs).
 
 ### Icon limitation (important)
 
@@ -71,7 +72,7 @@ Base: `https://allo.instadl.site/api/index.php?action=...`
 | --- | --- | --- | --- |
 | `health` | GET | no | — |
 | `config` | GET | no | — |
-| `register` | POST | no | `email, password, name, device_id, device_name, sdk, app_version` |
+| `register` | POST | no | `email, password, name, device_id, device_name, sdk, app_version`, optional `preferences` |
 | `login` | POST | no | `email, password, device_id, ...` |
 | `logout` | POST | bearer | — |
 | `me` | GET | bearer | — |
@@ -84,6 +85,8 @@ Base: `https://allo.instadl.site/api/index.php?action=...`
 | `notifications` | GET | bearer | — |
 | `event` | POST | bearer | `events` array (max 100): `type, track_id, title, artist, album, genre, duration_ms, listen_ms, ts` |
 | `signals` | GET | bearer | — |
+| `preferences` | GET | bearer | — |
+| `preferences` | POST | bearer | `preferences` object (`age, gender, listening_time, notifications, regions, artists, songs`) |
 
 Auth header: `Authorization: Bearer <token>` (`X-Allo-Token` also accepted).
 

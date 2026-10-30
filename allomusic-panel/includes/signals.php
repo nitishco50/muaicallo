@@ -203,6 +203,7 @@ function signals_recompute(int $userId): int
         'album' => 'top_album',
         'title' => 'top_track',
     ];
+    $topArtistRows = [];
     foreach ($tops as $column => $prefix) {
         $rows = $q(
             "SELECT `{$column}` AS name, COUNT(*) AS plays
@@ -213,12 +214,66 @@ function signals_recompute(int $userId): int
               LIMIT 10",
             $userId
         );
+        if ($column === 'artist') {
+            $topArtistRows = $rows;
+        }
         for ($i = 1; $i <= 10; $i++) {
             $row = $rows[$i - 1] ?? null;
             signal_set($signals, $prefix . '_' . $i, null, $row ? (string) $row['name'] : null);
             signal_set($signals, $prefix . '_plays_' . $i, $row ? (int) $row['plays'] : 0);
         }
     }
+
+
+    // Explicit first-run profile. Behaviour can eventually disagree with it;
+    // keeping both lets the recommender tell "never tried" from "tried, disliked".
+    $prefRow = $q('SELECT json FROM user_data WHERE user_id = ? AND ns = \'preferences\' LIMIT 1', $userId)[0] ?? null;
+    $prefs = $prefRow ? json_decode((string) $prefRow['json'], true) : [];
+    if (!is_array($prefs)) {
+        $prefs = [];
+    }
+    $prefRegions = is_array($prefs['regions'] ?? null) ? $prefs['regions'] : [];
+    $prefArtists = is_array($prefs['artists'] ?? null) ? $prefs['artists'] : [];
+    $prefSongs = is_array($prefs['songs'] ?? null) ? $prefs['songs'] : [];
+    $prefAge = (int) ($prefs['age'] ?? 0);
+    $ageBand = $prefAge <= 0 ? '' : (
+        $prefAge <= 17 ? '13-17' : (
+        $prefAge <= 24 ? '18-24' : (
+        $prefAge <= 34 ? '25-34' : (
+        $prefAge <= 44 ? '35-44' : '45+'
+    ))));
+    $completeness = 0;
+    if ($prefRegions) $completeness++;
+    if ($prefArtists) $completeness++;
+    if ($prefSongs) $completeness++;
+    if ($prefAge > 0) $completeness++;
+    if (!empty($prefs['gender'])) $completeness++;
+    if (!empty($prefs['listening_time'])) $completeness++;
+
+    signal_set($signals, 'pref_age', $prefAge);
+    signal_set($signals, 'pref_age_band', null, $ageBand);
+    signal_set($signals, 'pref_gender', null, (string) ($prefs['gender'] ?? ''));
+    signal_set($signals, 'pref_listening_time', null, (string) ($prefs['listening_time'] ?? ''));
+    signal_set($signals, 'pref_notifications', !empty($prefs['notifications']) ? 1 : 0);
+    signal_set($signals, 'pref_completeness', round($completeness / 6, 2));
+    signal_set($signals, 'pref_regions_count', count($prefRegions));
+    signal_set($signals, 'pref_artists_count', count($prefArtists));
+    signal_set($signals, 'pref_songs_count', count($prefSongs));
+    for ($i = 1; $i <= 10; $i++) {
+        signal_set($signals, 'pref_region_' . $i, null, isset($prefRegions[$i - 1]) ? (string) $prefRegions[$i - 1] : null);
+        signal_set($signals, 'pref_artist_' . $i, null, isset($prefArtists[$i - 1]) ? (string) $prefArtists[$i - 1] : null);
+        $song = $prefSongs[$i - 1] ?? null;
+        signal_set($signals, 'pref_song_' . $i, null, is_array($song) ? (string) ($song['title'] ?? '') : null);
+        signal_set($signals, 'pref_song_artist_' . $i, null, is_array($song) ? (string) ($song['artist'] ?? '') : null);
+        signal_set($signals, 'pref_song_region_' . $i, null, is_array($song) ? (string) ($song['region'] ?? '') : null);
+    }
+    $playedArtists = array_values(array_filter(array_map(
+        static fn (array $row): string => (string) $row['name'],
+        $topArtistRows
+    )));
+    $overlap = count(array_intersect($prefArtists, $playedArtists));
+    signal_set($signals, 'pref_artist_play_overlap', $overlap);
+    signal_set($signals, 'pref_artist_match_rate', round($ratio($overlap, max(1, count($prefArtists))), 4));
 
     // Device and account context, so a profile row reads on its own.
     $devices = $q('SELECT model, app_version, sdk, last_seen FROM devices WHERE user_id = ? ORDER BY last_seen DESC', $userId);

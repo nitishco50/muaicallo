@@ -396,7 +396,14 @@ if ($action === 'event') {
         }
         api_err('event_write', 'Could not store events.', 500);
     }
-    $signals = $accepted > 0 ? signals_recompute((int) $user['id']) : 0;
+    $signals = 0;
+    if ($accepted > 0) {
+        try {
+            $signals = signals_recompute((int) $user['id']);
+        } catch (Throwable $e) {
+            error_log('allomusic signals: ' . $e->getMessage());
+        }
+    }
     api_ok(['accepted' => $accepted, 'signals' => $signals]);
 }
 

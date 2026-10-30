@@ -105,6 +105,11 @@ object AlloEvents {
         if (flushNow) flushSoon()
     }
 
+    /** Drops anything not yet uploaded, so one account's plays cannot land on another. */
+    fun clear() {
+        prefs?.edit()?.remove(KEY_QUEUE)?.apply()
+    }
+
     fun flushSoon() {
         scope.launch { flush() }
     }

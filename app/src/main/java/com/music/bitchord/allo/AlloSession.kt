@@ -80,6 +80,7 @@ object AlloSession {
         email = null
         name = null
         _signedIn.value = false
+        AlloEvents.clear()
         prefs?.edit()?.remove("token")?.remove("email")?.remove("name")?.apply()
     }
 

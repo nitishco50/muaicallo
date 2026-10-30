@@ -64,13 +64,20 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 class AlloAccountActivity : ComponentActivity() {
 
+    companion object {
+        /** Set when the screen is the mandatory first-run gate, not a settings page. */
+        const val EXTRA_GATE = "com.music.bitchord.allo.GATE"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AlloSession.init(this)
+        AlloEvents.init(this)
         AlloRemoteConfig.load(this)
+        val gate = intent.getBooleanExtra(EXTRA_GATE, false)
         setContent {
             BitChordTheme(darkTheme = isSystemInDarkTheme()) {
-                AlloAccountScreen(onClose = { finish() })
+                AlloAccountScreen(gateMode = gate, onClose = { finish() })
             }
         }
     }
@@ -90,7 +97,7 @@ private fun parseAuth(data: JsonObject): AuthPayload? {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AlloAccountScreen(onClose: () -> Unit) {
+private fun AlloAccountScreen(gateMode: Boolean, onClose: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -291,8 +298,10 @@ private fun AlloAccountScreen(onClose: () -> Unit) {
                                         name = auth.name
                                         password = ""
                                         AlloSync.pushSettings(context)
+                                        AlloEvents.flushSoon()
                                         signedIn = true
                                         message = if (registerMode) "Account created." else "Signed in."
+                                        if (gateMode) onClose()
                                     }
                                 }
                                 is AlloApi.Result.Err -> error = result.message
@@ -316,16 +325,6 @@ private fun AlloAccountScreen(onClose: () -> Unit) {
                     Text(if (registerMode) "I already have an account" else "Create a new account")
                 }
 
-                TextButton(
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !busy,
-                    onClick = {
-                        AlloSession.markGateDone()
-                        onClose()
-                    },
-                ) {
-                    Text("Continue without an account")
-                }
             }
 
             if (busy) {

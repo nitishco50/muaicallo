@@ -5,6 +5,9 @@ import android.content.SharedPreferences
 import android.os.Build
 import com.music.bitchord.BuildConfig
 import com.music.bitchord.auth.EncryptedPrefs
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
 
 /**
@@ -30,9 +33,10 @@ object AlloSession {
     @Volatile var name: String? = null
         private set
 
-    /** Set once the welcome sheet has been answered either way. */
-    @Volatile var gateDone: Boolean = false
-        private set
+    private val _signedIn = MutableStateFlow(false)
+
+    /** Recomposes the gate when the token is written or cleared. */
+    val signedInState: StateFlow<Boolean> = _signedIn.asStateFlow()
 
     fun init(context: Context) {
         if (prefs != null) return
@@ -47,7 +51,7 @@ object AlloSession {
             token = store.getString("token", null)
             email = store.getString("email", null)
             name = store.getString("name", null)
-            gateDone = store.getBoolean("gate_done", false)
+            _signedIn.value = !token.isNullOrBlank()
         }
     }
 
@@ -57,12 +61,11 @@ object AlloSession {
         this.token = token
         this.email = email
         this.name = name
-        gateDone = true
+        _signedIn.value = true
         prefs?.edit()
             ?.putString("token", token)
             ?.putString("email", email)
             ?.putString("name", name)
-            ?.putBoolean("gate_done", true)
             ?.apply()
     }
 
@@ -76,12 +79,8 @@ object AlloSession {
         token = null
         email = null
         name = null
+        _signedIn.value = false
         prefs?.edit()?.remove("token")?.remove("email")?.remove("name")?.apply()
-    }
-
-    fun markGateDone() {
-        gateDone = true
-        prefs?.edit()?.putBoolean("gate_done", true)?.apply()
     }
 
     fun device(context: Context): AlloApi.Device {

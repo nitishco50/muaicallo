@@ -327,6 +327,8 @@ import com.music.bitchord.ui.theme.BitChordTheme
 import com.music.bitchord.ui.theme.rememberArtworkPalette
 import com.music.bitchord.data.canvas.AppleArtistArtRepository
 import com.music.bitchord.data.canvas.keyColors
+import com.music.bitchord.allo.AlloLoginGate
+import com.music.bitchord.allo.AlloSession
 import com.music.bitchord.ui.theme.SystemBarIcons
 import com.music.bitchord.ui.utils.guardSheetFromContentTouches
 import com.music.bitchord.ui.utils.rememberIosOverscrollFactory
@@ -366,6 +368,16 @@ class MainActivity : AppCompatActivity() {
         // Likewise for a link tapped or shared from another app — see [MusicLink].
         MusicLink.consume(intent)
         setContent {
+            // allomusic is account-first: no account, no library. The gate is
+            // outside the app's theme state on purpose, so a cold start never
+            // renders a page it is about to replace.
+            val alloSignedIn by AlloSession.signedInState.collectAsStateWithLifecycle()
+            if (!alloSignedIn) {
+                BitChordTheme(darkTheme = isSystemInDarkTheme()) {
+                    AlloLoginGate()
+                }
+                return@setContent
+            }
             val theme by AppSettings.themeMode.collectAsStateWithLifecycle()
             val highPerformance by AppSettings.highPerformanceMode.collectAsStateWithLifecycle()
             val liquidGlassEnabled by AppSettings.liquidGlass.collectAsStateWithLifecycle()

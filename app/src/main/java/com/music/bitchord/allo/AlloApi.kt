@@ -11,6 +11,8 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.booleanOrNull
@@ -141,6 +143,13 @@ object AlloApi {
         call("data", token = token, query = mapOf("ns" to namespace))
 
     suspend fun notifications(token: String): Result = call("notifications", token = token)
+
+    suspend fun sendEvents(token: String, events: List<JsonElement>): Result =
+        call("event", HttpMethod.Post, token, buildJsonObject {
+            put("events", JsonArray(events))
+        })
+
+    suspend fun signals(token: String): Result = call("signals", token = token)
 
     suspend fun changePassword(token: String, current: String, next: String): Result =
         call("password", HttpMethod.Post, token, buildJsonObject {

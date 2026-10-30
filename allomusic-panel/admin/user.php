@@ -108,6 +108,15 @@ $notices = $pdo->prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY
 $notices->execute([$id]);
 $notices = $notices->fetchAll();
 
+$signals = signals_fetch($id);
+
+$recentEvents = $pdo->prepare(
+    'SELECT type, title, artist, listen_ms, duration_ms, created_at
+       FROM events WHERE user_id = ? ORDER BY id DESC LIMIT 30'
+);
+$recentEvents->execute([$id]);
+$recentEvents = $recentEvents->fetchAll();
+
 admin_header('User #' . $id, 'users');
 ?>
 <p><a href="users.php">← Back to users</a></p>
@@ -176,6 +185,59 @@ admin_header('User #' . $id, 'users');
         <?php if (!$devices): ?><tr><td colspan="5" class="muted">No devices reported.</td></tr><?php endif; ?>
         </tbody>
     </table></div>
+</section>
+
+
+<section class="card" style="margin-top:16px">
+    <h2>Listening signals <span class="muted small">(<?= count($signals) ?>)</span></h2>
+    <?php if ($signals): ?>
+        <div class="table-wrap" style="max-height:420px;overflow:auto">
+            <table>
+                <thead><tr><th>Signal</th><th>Value</th><th>Updated</th></tr></thead>
+                <tbody>
+                <?php foreach ($signals as $sig): ?>
+                    <?php
+                    $value = $sig['txt'] !== null && $sig['txt'] !== ''
+                        ? $sig['txt']
+                        : ($sig['num'] !== null
+                            ? rtrim(rtrim(number_format((float) $sig['num'], 2, '.', ''), '0'), '.')
+                            : '—');
+                    ?>
+                    <tr>
+                        <td class="small"><?= e($sig['signal_key']) ?></td>
+                        <td><?= e((string) $value) ?></td>
+                        <td class="nowrap small"><?= e($sig['updated_at']) ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    <?php else: ?>
+        <p class="muted">No listening events yet. Signals appear after the app uploads its first batch.</p>
+    <?php endif; ?>
+</section>
+
+<section class="card" style="margin-top:16px">
+    <h2>Recent events</h2>
+    <?php if ($recentEvents): ?>
+        <div class="table-wrap"><table>
+            <thead><tr><th>Type</th><th>Track</th><th>Artist</th><th>Listened</th><th>Duration</th><th>When</th></tr></thead>
+            <tbody>
+            <?php foreach ($recentEvents as $ev): ?>
+                <tr>
+                    <td><span class="badge"><?= e($ev['type']) ?></span></td>
+                    <td><?= e($ev['title'] ?: '—') ?></td>
+                    <td class="muted"><?= e($ev['artist'] ?: '—') ?></td>
+                    <td class="nowrap small"><?= $ev['listen_ms'] ? e(gmdate('i:s', (int) $ev['listen_ms'])) : '—' ?></td>
+                    <td class="nowrap small"><?= $ev['duration_ms'] ? e(gmdate('i:s', (int) $ev['duration_ms'])) : '—' ?></td>
+                    <td class="nowrap small"><?= e($ev['created_at']) ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table></div>
+    <?php else: ?>
+        <p class="muted">No events recorded.</p>
+    <?php endif; ?>
 </section>
 
 <section class="card" style="margin-top:16px">

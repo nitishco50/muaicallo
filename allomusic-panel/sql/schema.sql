@@ -128,13 +128,46 @@ CREATE TABLE IF NOT EXISTS audit_log (
   CONSTRAINT fk_audit_admin FOREIGN KEY (admin_id) REFERENCES admins (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+
+CREATE TABLE IF NOT EXISTS events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  type VARCHAR(32) NOT NULL,
+  track_id VARCHAR(64) NOT NULL DEFAULT '',
+  title VARCHAR(255) NOT NULL DEFAULT '',
+  artist VARCHAR(255) NOT NULL DEFAULT '',
+  album VARCHAR(255) NOT NULL DEFAULT '',
+  genre VARCHAR(128) NOT NULL DEFAULT '',
+  source VARCHAR(32) NOT NULL DEFAULT '',
+  duration_ms INT UNSIGNED NOT NULL DEFAULT 0,
+  listen_ms INT UNSIGNED NOT NULL DEFAULT 0,
+  extra TEXT NULL,
+  client_ts BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_events_user_time (user_id, created_at),
+  KEY idx_events_user_type (user_id, type),
+  KEY idx_events_user_track (user_id, track_id),
+  CONSTRAINT fk_events_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS user_signals (
+  user_id BIGINT UNSIGNED NOT NULL,
+  signal_key VARCHAR(64) NOT NULL,
+  num DOUBLE NULL,
+  txt VARCHAR(255) NULL,
+  updated_at DATETIME NOT NULL,
+  PRIMARY KEY (user_id, signal_key),
+  CONSTRAINT fk_signals_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Default app configuration. INSERT IGNORE keeps re-runs safe.
 INSERT IGNORE INTO settings (k, v) VALUES
   ('app_name', 'allomusic'),
   ('maintenance', '0'),
   ('maintenance_message', 'allomusic is being updated. Please try again shortly.'),
   ('min_version_code', '1'),
-  ('latest_version_code', '2'),
+  ('latest_version_code', '3'),
   ('update_url', 'https://github.com/nitishco50/muaicallo/releases/latest'),
   ('force_update', '0'),
   ('icon_set', 'user_custom'),

@@ -49,6 +49,10 @@ Admin panel and mobile API for the allomusic app, meant to live at
   custom artwork used as the in-app brand image.
 - **Notices** — broadcast or per-user messages, pulled by the app.
 - **Audit Log** — every admin action with IP and timestamp.
+- **Listening signals** — the user page shows 170+ derived signals (plays,
+  completion/skip/like rates, per-hour and per-weekday buckets, top
+  genres/artists/albums/tracks, streaks, device/app context) plus the most
+  recent raw events.
 
 ### Icon limitation (important)
 
@@ -78,6 +82,8 @@ Base: `https://allo.instadl.site/api/index.php?action=...`
 | `data` | POST | bearer | `ns, json` (string or object, max 1 MB) |
 | `data_delete` | POST | bearer | `ns` |
 | `notifications` | GET | bearer | — |
+| `event` | POST | bearer | `events` array (max 100): `type, track_id, title, artist, album, genre, duration_ms, listen_ms, ts` |
+| `signals` | GET | bearer | — |
 
 Auth header: `Authorization: Bearer <token>` (`X-Allo-Token` also accepted).
 

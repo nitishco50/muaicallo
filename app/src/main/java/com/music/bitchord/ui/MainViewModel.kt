@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.music.bitchord.R
+import com.music.bitchord.allo.AlloEvents
 import com.music.bitchord.auth.AuthStore
 import com.music.bitchord.auth.SignedIn
 import com.music.bitchord.auth.GoogleAccountSession
@@ -675,6 +676,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val previous = likeStatusOf(videoId)
         if (previous == status) return
         LikeState.set(videoId, status)
+        AlloEvents.rating(videoId, status.name)
         viewModelScope.launch {
             YtMusicRepository.rate(videoId, status).fold(
                 onSuccess = {
@@ -1854,7 +1856,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * a suggestion, result row, or typeahead card so the recents list shows
      * real artwork and metadata instead of raw text.
      */
-    fun recordEntity(entity: SearchHistoryEntity) = SearchHistory.record(entity)
+    fun recordEntity(entity: SearchHistoryEntity) {
+        AlloEvents.search(entity.title, entity.subtitle, entity.entityType.name)
+        SearchHistory.record(entity)
+    }
 
     /**
      * Records a track entity from a search hit.

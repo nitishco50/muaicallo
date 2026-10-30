@@ -121,6 +121,7 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
         // slow network never delays the first frame, and a launcher-icon change
         // is applied when it lands.
         com.music.bitchord.allo.AlloSession.init(this)
+        com.music.bitchord.allo.AlloEvents.init(this)
         com.music.bitchord.allo.AlloRemoteConfig.refresh(this)
         // Before anything resolves a track: an addon with `checkValidLossless`
         // is gated on this, and the gate reads "no" until it has looked.

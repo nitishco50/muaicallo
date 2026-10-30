@@ -339,3 +339,5 @@ function record_attempt(string $email, string $ip, bool $ok): void
     $stmt = db()->prepare('INSERT INTO login_attempts (email, ip, ok, created_at) VALUES (?, ?, ?, ?)');
     $stmt->execute([$email, $ip, $ok ? 1 : 0, now()]);
 }
+
+require_once __DIR__ . '/signals.php';

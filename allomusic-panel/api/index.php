@@ -331,4 +331,79 @@ if ($action === 'notifications') {
     api_ok(['notifications' => $stmt->fetchAll()]);
 }
 
+
+/* ----------------------------------------------------------------- events */
+
+if ($action === 'event') {
+    if ($method !== 'POST') {
+        api_err('method', 'Use POST.', 405);
+    }
+    $user = require_api_user();
+    $body = body_json();
+    $events = $body['events'] ?? null;
+    if (!is_array($events) || $events === []) {
+        api_err('events', 'Send a non-empty "events" array.');
+    }
+    if (count($events) > 100) {
+        $events = array_slice($events, 0, 100);
+    }
+    $allowed = [
+        'play', 'complete', 'skip', 'like', 'dislike', 'unlike',
+        'search', 'download', 'share', 'playlist_add', 'open', 'session',
+    ];
+    $insert = $pdo->prepare(
+        'INSERT INTO events
+            (user_id, type, track_id, title, artist, album, genre, source,
+             duration_ms, listen_ms, extra, client_ts, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    $accepted = 0;
+    $pdo->beginTransaction();
+    try {
+        foreach ($events as $event) {
+            if (!is_array($event)) {
+                continue;
+            }
+            $type = substr((string) ($event['type'] ?? ''), 0, 32);
+            if (!in_array($type, $allowed, true)) {
+                continue;
+            }
+            $extra = $event['extra'] ?? null;
+            if (is_array($extra) || is_object($extra)) {
+                $extra = json_encode($extra, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+            $insert->execute([
+                $user['id'],
+                $type,
+                substr((string) ($event['track_id'] ?? ''), 0, 64),
+                substr((string) ($event['title'] ?? ''), 0, 255),
+                substr((string) ($event['artist'] ?? ''), 0, 255),
+                substr((string) ($event['album'] ?? ''), 0, 255),
+                substr((string) ($event['genre'] ?? ''), 0, 128),
+                substr((string) ($event['source'] ?? ''), 0, 32),
+                max(0, min(86400000, (int) ($event['duration_ms'] ?? 0))),
+                max(0, min(86400000, (int) ($event['listen_ms'] ?? 0))),
+                is_string($extra) ? substr($extra, 0, 4000) : null,
+                max(0, (int) ($event['ts'] ?? 0)),
+                now(),
+            ]);
+            $accepted++;
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        api_err('event_write', 'Could not store events.', 500);
+    }
+    $signals = $accepted > 0 ? signals_recompute((int) $user['id']) : 0;
+    api_ok(['accepted' => $accepted, 'signals' => $signals]);
+}
+
+if ($action === 'signals') {
+    $user = require_api_user();
+    $rows = signals_fetch((int) $user['id']);
+    api_ok(['signals' => $rows, 'count' => count($rows)]);
+}
+
 api_err('unknown_action', 'Unknown action: ' . $action, 404);

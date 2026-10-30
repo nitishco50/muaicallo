@@ -1,5 +1,6 @@
 package com.music.bitchord.data.stats
 
+import com.music.bitchord.allo.AlloEvents
 import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.model.Song
 import com.music.bitchord.data.model.durationMillis
@@ -49,6 +50,21 @@ object ListeningRecorder {
     private var playCounted = false
     private var samplesSinceFlush = 0
 
+    /** The track the next tick belongs to, kept for the account event trail. */
+    private var currentSong: Song? = null
+    private var currentLength: Long = 0L
+    private var completedSent = false
+
+    /**
+     * What the last track had played when [onStopped] closed it.
+     *
+     * A pause and a track change both call [onStopped], so the amount is kept
+     * here to tell the next track whether the one before it was abandoned
+     * before it ever counted as a play. Resuming the *same* track ignores it.
+     */
+    private var stoppedPlayed: Long = 0L
+    private var stoppedCounted = false
+
     /**
      * One tick of the player's sampler.
      *
@@ -59,10 +75,24 @@ object ListeningRecorder {
     @Synchronized
     fun onSample(song: Song, durationMs: Long) {
         val now = System.currentTimeMillis()
+        val length = durationMs.takeIf { it > 0 } ?: song.durationMillis()
         if (song.videoId != currentId) {
             // A new track anchors the clock and contributes nothing yet — see
             // the class note on undercounting.
+            val previous = currentSong
+            val priorPlayed = maxOf(playedThisTrack, stoppedPlayed)
+            val priorCounted = playCounted || stoppedCounted
+            if (previous != null && previous.videoId != song.videoId &&
+                !priorCounted && priorPlayed >= SKIP_FLOOR_MS
+            ) {
+                AlloEvents.skip(previous, priorPlayed, currentLength)
+            }
+            stoppedPlayed = 0L
+            stoppedCounted = false
             currentId = song.videoId
+            currentSong = song
+            currentLength = length
+            completedSent = false
             lastSampleAt = now
             playedThisTrack = 0L
             playCounted = false
@@ -73,14 +103,22 @@ object ListeningRecorder {
         if (step <= 0L) return
         playedThisTrack += step
 
-        val length = durationMs.takeIf { it > 0 } ?: song.durationMillis()
         val threshold = if (length > 0) {
             min(length / 2, PLAY_CEILING_MS).coerceAtLeast(PLAY_FLOOR_MS)
         } else {
             PLAY_FLOOR_MS
         }
         val counts = !playCounted && playedThisTrack >= threshold
-        if (counts) playCounted = true
+        if (counts) {
+            playCounted = true
+            AlloEvents.play(song, playedThisTrack, length)
+        }
+        if (playCounted && !completedSent && length > 0 &&
+            playedThisTrack >= length * 85 / 100
+        ) {
+            completedSent = true
+            AlloEvents.complete(song, playedThisTrack, length)
+        }
 
         ListeningStats.record(enriched(song), step, counts)
 
@@ -99,6 +137,8 @@ object ListeningRecorder {
      */
     @Synchronized
     fun onStopped() {
+        stoppedPlayed = playedThisTrack
+        stoppedCounted = playCounted
         currentId = null
         playedThisTrack = 0L
         playCounted = false
@@ -176,6 +216,9 @@ object ListeningRecorder {
 
     /** Under half a minute is not a listen, however it ended. */
     private const val PLAY_FLOOR_MS = 30_000L
+
+    /** Under two seconds is a mistap, not a track the listener rejected. */
+    private const val SKIP_FLOOR_MS = 2_000L
 
     /** Past four minutes, half a track is more listening than anyone disputes. */
     private const val PLAY_CEILING_MS = 4 * 60 * 1000L

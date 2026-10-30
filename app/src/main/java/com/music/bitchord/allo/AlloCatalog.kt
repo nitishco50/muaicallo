@@ -190,7 +190,7 @@ object AlloCatalog {
             "Bhimsen Joshi", "Kishori Amonkar", "Amjad Ali Khan", "Shivkumar Sharma",
         ),
         "hiphop" to listOf(
-            "DIVINE", "Raftaar", "Emiway Bantai", "KR$NA", "Badshah",
+            "DIVINE", "Raftaar", "Emiway Bantai", "KR\$NA", "Badshah",
             "Yo Yo Honey Singh", "Ikka", "King",
         ),
     )

@@ -52,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.music.bitchord.ui.theme.BitChordTheme
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -149,8 +150,8 @@ private fun AlloSetupScreen(onDone: () -> Unit) {
                 put("gender", gender)
                 put("listening_time", listeningTime)
                 put("notifications", notifications)
-                put("regions", buildJsonArray { regions.forEach { add(it) } })
-                put("artists", buildJsonArray { artists.forEach { add(it) } })
+                put("regions", buildJsonArray { regions.forEach { add(JsonPrimitive(it)) } })
+                put("artists", buildJsonArray { artists.forEach { add(JsonPrimitive(it)) } })
                 put("songs", buildJsonArray {
                     songs.forEach { song ->
                         add(buildJsonObject {
@@ -341,7 +342,7 @@ private fun AccountStep(
     )
     OutlinedTextField(
         value = age,
-        onValueChange = { age = it.filter(Char::isDigit).take(3) },
+        onValueChange = { onAge(it.filter(Char::isDigit).take(3)) },
         label = { Text("Age") },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

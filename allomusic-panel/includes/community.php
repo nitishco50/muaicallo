@@ -268,6 +268,31 @@ function community_history(int $userId, int $days, int $limit): array
     $playsCount = (int) ($stats['plays'] ?? 0);
     $listenMs = (int) ($stats['listen_ms'] ?? 0);
 
+    $count = static function (string $sql, array $args) use ($pdo): int {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($args);
+        return (int) $stmt->fetchColumn();
+    };
+    $social = [
+        'likes_given' => $count('SELECT COUNT(*) FROM song_reactions WHERE user_id = ? AND value = 1', [$userId]),
+        'dislikes_given' => $count('SELECT COUNT(*) FROM song_reactions WHERE user_id = ? AND value = -1', [$userId]),
+        'bookmarks' => $count('SELECT COUNT(*) FROM song_bookmarks WHERE user_id = ?', [$userId]),
+        'comments' => $count("SELECT COUNT(*) FROM song_comments WHERE user_id = ? AND status = 'visible'", [$userId]),
+        'comment_likes_received' => $count(
+            'SELECT COUNT(*) FROM comment_likes cl JOIN song_comments c ON c.id = cl.comment_id WHERE c.user_id = ?',
+            [$userId]
+        ),
+        'followers' => $count('SELECT COUNT(*) FROM user_follows WHERE following_id = ?', [$userId]),
+        'following' => $count('SELECT COUNT(*) FROM user_follows WHERE follower_id = ?', [$userId]),
+        'artists_followed' => $count('SELECT COUNT(*) FROM artist_follows WHERE user_id = ?', [$userId]),
+    ];
+
+    $topSongs = $topSongsStmt->fetchAll();
+    foreach ($topSongs as &$song) {
+        $song = array_merge($song, community_song($userId, (string) $song['song_key']));
+    }
+    unset($song);
+
     return [
         'days' => $days,
         'stats' => [
@@ -277,10 +302,10 @@ function community_history(int $userId, int $days, int $limit): array
             'unique_songs' => (int) ($stats['unique_songs'] ?? 0),
             'unique_artists' => (int) ($stats['unique_artists'] ?? 0),
             'average_minutes_per_day' => $days > 0 ? round($listenMs / 60000 / $days, 1) : 0,
-        ],
+        ] + $social,
         'daily' => $buckets,
         'plays' => $plays,
-        'top_songs' => $topSongsStmt->fetchAll(),
+        'top_songs' => $topSongs,
         'top_artists' => $topArtistsStmt->fetchAll(),
     ];
 }

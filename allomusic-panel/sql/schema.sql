@@ -167,7 +167,7 @@ INSERT IGNORE INTO settings (k, v) VALUES
   ('maintenance', '0'),
   ('maintenance_message', 'allomusic is being updated. Please try again shortly.'),
   ('min_version_code', '1'),
-  ('latest_version_code', '4'),
+  ('latest_version_code', '5'),
   ('update_url', 'https://github.com/nitishco50/muaicallo/releases/latest'),
   ('force_update', '0'),
   ('icon_set', 'user_custom'),

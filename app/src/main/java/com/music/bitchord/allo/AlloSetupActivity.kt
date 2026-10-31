@@ -117,7 +117,13 @@ class AlloSetupActivity : ComponentActivity() {
     }
 }
 
-private data class SetupAuth(val token: String, val email: String, val name: String)
+private data class SetupAuth(
+    val token: String,
+    val email: String,
+    val name: String,
+    val userId: Long?,
+    val uuid: String?,
+)
 
 private fun parseSetupAuth(data: JsonObject): SetupAuth? {
     val token = data["token"]?.jsonPrimitive?.contentOrNull ?: return null
@@ -126,6 +132,8 @@ private fun parseSetupAuth(data: JsonObject): SetupAuth? {
         token = token,
         email = user?.get("email")?.jsonPrimitive?.contentOrNull.orEmpty(),
         name = user?.get("name")?.jsonPrimitive?.contentOrNull.orEmpty(),
+        userId = user?.get("id")?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
+        uuid = user?.get("uuid")?.jsonPrimitive?.contentOrNull,
     )
 }
 
@@ -219,7 +227,7 @@ private fun AlloSetupScreen(onDone: () -> Unit) {
                     if (auth == null) {
                         error = "The server response was incomplete."
                     } else {
-                        AlloSession.save(auth.token, auth.email, auth.name)
+                        AlloSession.save(auth.token, auth.email, auth.name, auth.userId, auth.uuid)
                         AlloSync.pushSettings(context)
                         AlloEvents.flushSoon()
                         onDone()

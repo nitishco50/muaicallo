@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteSweep
@@ -178,6 +179,8 @@ fun SongActionsSheet(
     /** Which cut is playing now, so the row can offer the other one. */
     isAudioVersion: Boolean = false,
     onShare: (() -> Unit)? = null,
+    /** Opens the allomusic song page: likes, bookmarks and comments. */
+    onOpenAlloCommunity: (() -> Unit)? = null,
     /**
      * Copies what the app logged while starting this track. Null everywhere
      * except the player, where "this track" means something.
@@ -269,6 +272,16 @@ fun SongActionsSheet(
                     onClick = it,
                 )
             }
+            GroupSeparator(palette)
+        }
+
+        onOpenAlloCommunity?.let {
+            ActionRow(
+                icon = Icons.Rounded.ChatBubbleOutline,
+                label = "allomusic likes & comments",
+                accent = palette.accent,
+                onClick = it,
+            )
             GroupSeparator(palette)
         }
 

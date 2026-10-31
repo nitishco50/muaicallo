@@ -252,6 +252,13 @@
             android:label="@string/app_name"
             android:theme="@style/Theme.BitChord" />
 
+        <!-- History, likes, bookmarks and the allomusic community pages. -->
+        <activity
+            android:name=".allo.AlloHubActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.BitChord" />
+
         <!--
           The launcher entries live on aliases, not on MainActivity, so the user can
           swap the home-screen icon by enabling one alias and disabling the others

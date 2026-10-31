@@ -10,7 +10,9 @@ function admin_header(string $title, string $active = ''): void
         'settings.php' => ['App Settings', 'settings'],
         'icons.php' => ['App Icon', 'icons'],
         'notices.php' => ['Notices', 'notices'],
+        'community.php' => ['Community', 'community'],
         'audit.php' => ['Audit Log', 'audit'],
+        'upgrade.php' => ['DB Upgrade', 'upgrade'],
     ];
     echo '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         . '<meta name="viewport" content="width=device-width,initial-scale=1">'

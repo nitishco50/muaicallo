@@ -1,5 +1,6 @@
 package com.music.bitchord.allo
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -83,7 +84,13 @@ class AlloAccountActivity : ComponentActivity() {
     }
 }
 
-private data class AuthPayload(val token: String, val email: String, val name: String)
+private data class AuthPayload(
+    val token: String,
+    val email: String,
+    val name: String,
+    val userId: Long?,
+    val uuid: String?,
+)
 
 private fun parseAuth(data: JsonObject): AuthPayload? {
     val token = data["token"]?.jsonPrimitive?.contentOrNull ?: return null
@@ -92,6 +99,8 @@ private fun parseAuth(data: JsonObject): AuthPayload? {
         token = token,
         email = user?.get("email")?.jsonPrimitive?.contentOrNull.orEmpty(),
         name = user?.get("name")?.jsonPrimitive?.contentOrNull.orEmpty(),
+        userId = user?.get("id")?.jsonPrimitive?.contentOrNull?.toLongOrNull(),
+        uuid = user?.get("uuid")?.jsonPrimitive?.contentOrNull,
     )
 }
 
@@ -163,6 +172,17 @@ private fun AlloAccountScreen(gateMode: Boolean, onClose: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        context.startActivity(
+                            Intent(context, AlloHubActivity::class.java),
+                        )
+                    },
+                ) {
+                    Text("History, likes & community")
+                }
 
                 Button(
                     modifier = Modifier.fillMaxWidth(),
@@ -293,7 +313,7 @@ private fun AlloAccountScreen(gateMode: Boolean, onClose: () -> Unit) {
                                     if (auth == null) {
                                         error = "The server response was incomplete."
                                     } else {
-                                        AlloSession.save(auth.token, auth.email, auth.name)
+                                        AlloSession.save(auth.token, auth.email, auth.name, auth.userId, auth.uuid)
                                         email = auth.email
                                         name = auth.name
                                         password = ""

@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS events (
   title VARCHAR(255) NOT NULL DEFAULT '',
   artist VARCHAR(255) NOT NULL DEFAULT '',
   album VARCHAR(255) NOT NULL DEFAULT '',
+  art_url VARCHAR(512) NOT NULL DEFAULT '',
   genre VARCHAR(128) NOT NULL DEFAULT '',
   source VARCHAR(32) NOT NULL DEFAULT '',
   duration_ms INT UNSIGNED NOT NULL DEFAULT 0,
@@ -161,13 +162,105 @@ CREATE TABLE IF NOT EXISTS user_signals (
   CONSTRAINT fk_signals_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Community: one row per listener and song for likes/dislikes, bookmarks,
+-- comments, comment likes/reports, and who follows whom. The song itself is
+-- identified by a stable key (the YouTube video id, or a hashed local id) so
+-- the same track is one community object across phones.
+CREATE TABLE IF NOT EXISTS song_reactions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  song_key VARCHAR(191) NOT NULL,
+  value TINYINT NOT NULL,
+  title VARCHAR(255) NOT NULL DEFAULT '',
+  artist VARCHAR(255) NOT NULL DEFAULT '',
+  art_url VARCHAR(512) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_reaction_user_song (user_id, song_key),
+  KEY idx_reaction_song_value (song_key, value),
+  KEY idx_reaction_user_time (user_id, updated_at),
+  CONSTRAINT fk_reaction_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS song_bookmarks (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  song_key VARCHAR(191) NOT NULL,
+  title VARCHAR(255) NOT NULL DEFAULT '',
+  artist VARCHAR(255) NOT NULL DEFAULT '',
+  art_url VARCHAR(512) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_bookmark_user_song (user_id, song_key),
+  KEY idx_bookmark_song (song_key),
+  KEY idx_bookmark_user_time (user_id, created_at),
+  CONSTRAINT fk_bookmark_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS song_comments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  song_key VARCHAR(191) NOT NULL,
+  parent_id BIGINT UNSIGNED NULL,
+  body VARCHAR(1000) NOT NULL,
+  status ENUM('visible', 'hidden') NOT NULL DEFAULT 'visible',
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  PRIMARY KEY (id),
+  KEY idx_comments_song_time (song_key, created_at),
+  KEY idx_comments_user_time (user_id, created_at),
+  KEY idx_comments_parent (parent_id),
+  CONSTRAINT fk_comments_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS comment_likes (
+  comment_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY (comment_id, user_id),
+  CONSTRAINT fk_comment_like_comment FOREIGN KEY (comment_id) REFERENCES song_comments (id) ON DELETE CASCADE,
+  CONSTRAINT fk_comment_like_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS comment_reports (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  comment_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  reason VARCHAR(255) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_comment_report (comment_id, user_id),
+  CONSTRAINT fk_comment_report_comment FOREIGN KEY (comment_id) REFERENCES song_comments (id) ON DELETE CASCADE,
+  CONSTRAINT fk_comment_report_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS user_follows (
+  follower_id BIGINT UNSIGNED NOT NULL,
+  following_id BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY (follower_id, following_id),
+  KEY idx_follows_following (following_id, created_at),
+  CONSTRAINT fk_follows_follower FOREIGN KEY (follower_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_follows_following FOREIGN KEY (following_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS artist_follows (
+  user_id BIGINT UNSIGNED NOT NULL,
+  artist VARCHAR(191) NOT NULL,
+  created_at DATETIME NOT NULL,
+  PRIMARY KEY (user_id, artist),
+  KEY idx_artist_follows_artist (artist),
+  CONSTRAINT fk_artist_follow_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Default app configuration. INSERT IGNORE keeps re-runs safe.
 INSERT IGNORE INTO settings (k, v) VALUES
   ('app_name', 'allomusic'),
   ('maintenance', '0'),
   ('maintenance_message', 'allomusic is being updated. Please try again shortly.'),
   ('min_version_code', '1'),
-  ('latest_version_code', '5'),
+  ('latest_version_code', '6'),
   ('update_url', 'https://github.com/nitishco50/muaicallo/releases/latest'),
   ('force_update', '0'),
   ('icon_set', 'user_custom'),

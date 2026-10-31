@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.net.ConnectivityManager
 import android.net.Network
 import com.music.bitchord.BitChordApplication
+import com.music.bitchord.allo.AlloSession
 import com.music.bitchord.BuildConfig
 import com.music.bitchord.data.DebugLog as Log
 import com.music.bitchord.data.settings.AppSettings
@@ -1467,20 +1468,41 @@ object ListenTogether {
      */
     private fun identity(nickname: String = nickname()): Identity? {
         val store = BitChordApplication.authStore
-        if (!store.isSignedIn) return null
-        val account = store.activeSession ?: return null
-        val profile = account.profiles.firstOrNull { it.profileId == account.activeProfileId }
-            ?: account.profiles.firstOrNull()
+        if (store.isSignedIn) {
+            val account = store.activeSession ?: return null
+            val profile = account.profiles.firstOrNull { it.profileId == account.activeProfileId }
+                ?: account.profiles.firstOrNull()
+            val name = nickname.trim().takeIf { it.isNotBlank() }
+                ?: profile?.name?.takeIf { it.isNotBlank() }
+                ?: account.name.takeIf { it.isNotBlank() }
+                ?: account.email.substringBefore('@').takeIf { it.isNotBlank() }
+                ?: return null
+            return Identity(
+                userId = sha256("${account.accountId}:${profile?.profileId.orEmpty()}").take(32),
+                deviceId = deviceId(),
+                name = name,
+                avatar = profile?.avatar?.takeIf { it.startsWith("http") },
+            )
+        }
+
+        // allomusic accounts are enough for Listen Together. The YouTube
+        // session is a separate, optional connection; needing Google cookies
+        // to join a party after signing up was the reason the party screen kept
+        // asking a signed-up listener to sign in again.
+        if (!AlloSession.isSignedIn) return null
         val name = nickname.trim().takeIf { it.isNotBlank() }
-            ?: profile?.name?.takeIf { it.isNotBlank() }
-            ?: account.name.takeIf { it.isNotBlank() }
-            ?: account.email.substringBefore('@').takeIf { it.isNotBlank() }
+            ?: AlloSession.name?.takeIf { it.isNotBlank() }
+            ?: AlloSession.email?.substringBefore('@')?.takeIf { it.isNotBlank() }
+            ?: return null
+        val stable = AlloSession.userId?.let { "allo:$it" }
+            ?: AlloSession.uuid?.let { "allo:uuid:$it" }
+            ?: AlloSession.email?.let { "allo:email:" + sha256(it.lowercase()).take(32) }
             ?: return null
         return Identity(
-            userId = sha256("${account.accountId}:${profile?.profileId.orEmpty()}").take(32),
+            userId = sha256(stable).take(32),
             deviceId = deviceId(),
             name = name,
-            avatar = profile?.avatar?.takeIf { it.startsWith("http") },
+            avatar = null,
         )
     }
 

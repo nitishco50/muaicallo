@@ -81,6 +81,7 @@ object AlloEvents {
         event.put("title", song.title.take(255))
         event.put("artist", song.artist.take(255))
         song.albumName?.let { event.put("album", it.take(255)) }
+        song.thumbnailUrl?.let { event.put("art_url", it.take(512)) }
         event.put("duration_ms", durationMs.coerceAtLeast(0L))
         event.put("listen_ms", listenMs.coerceAtLeast(0L))
         event.put("source", song.queueTier.name)

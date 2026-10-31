@@ -8,6 +8,7 @@ Admin panel and mobile API for the allomusic app, meant to live at
 | Path | Purpose |
 | --- | --- |
 | `install.php` | Creates tables and the first admin. **Delete after setup.** |
+| `admin/upgrade.php` | Applies new schema versions to an existing install. |
 | `admin/` | Session-authenticated control panel. |
 | `api/index.php` | JSON API used by the Android app. |
 | `includes/` | Bootstrap, PDO, auth, CSRF, rate limiting, layout. |
@@ -33,9 +34,12 @@ Admin panel and mobile API for the allomusic app, meant to live at
    use `775` if the host runs PHP as a different user).
 6. **Install.** Visit `https://allo.instadl.site/install.php`, create the owner
    account, then **delete `install.php`**.
-7. **Cron (optional).** hPanel → Advanced → Cron Jobs, daily:
+7. **Upgrade an existing install.** Upload the new backend files, then open
+   **Admin → DB Upgrade** and press *Apply schema upgrade*. It is idempotent and
+   adds new tables plus `events.art_url` without touching existing rows.
+8. **Cron (optional).** hPanel → Advanced → Cron Jobs, daily:
    `php /home/USER/domains/allo.instadl.site/public_html/allo/cron/cleanup.php`
-8. **HTTPS.** Enable the free SSL certificate for the subdomain and force HTTPS.
+9. **HTTPS.** Enable the free SSL certificate for the subdomain and force HTTPS.
 
 ## Panel
 
@@ -48,6 +52,8 @@ Admin panel and mobile API for the allomusic app, meant to live at
 - **App Icon** — switch between the icon sets compiled into the APK, and upload
   custom artwork used as the in-app brand image.
 - **Notices** — broadcast or per-user messages, pulled by the app.
+- **Community** — latest comments, like/dislike/bookmark/report counts, hide,
+  restore or delete comments.
 - **Audit Log** — every admin action with IP and timestamp.
 - **Listening signals** — the user page shows 230+ derived signals (plays,
   completion/skip/like rates, per-hour and per-weekday buckets, top
@@ -83,10 +89,32 @@ Base: `https://allo.instadl.site/api/index.php?action=...`
 | `data` | POST | bearer | `ns, json` (string or object, max 1 MB) |
 | `data_delete` | POST | bearer | `ns` |
 | `notifications` | GET | bearer | — |
-| `event` | POST | bearer | `events` array (max 100): `type, track_id, title, artist, album, genre, duration_ms, listen_ms, ts` |
+| `event` | POST | bearer | `events` array (max 100): `type, track_id, title, artist, album, art_url, genre, duration_ms, listen_ms, ts` |
 | `signals` | GET | bearer | — |
 | `preferences` | GET | bearer | — |
 | `preferences` | POST | bearer | `preferences` object (`age, gender, listening_time, notifications, regions, artists, songs`) |
+| `history` | GET | bearer | `days` (1–180, default 30), `limit` (1–500) |
+| `history_clear` | POST | bearer | `days` |
+| `profile_stats` | GET | bearer | 30-day listening + social counters |
+| `reaction` | POST | bearer | `song_key, action` (`like`/`dislike`/`clear`), optional `title, artist, art_url` |
+| `reactions` | GET | bearer | `value` (`like`/`dislike`) |
+| `bookmark` | POST | bearer | `song_key, action` (`add`/`remove`/`toggle`), optional metadata |
+| `bookmarks` | GET | bearer | — |
+| `song` | GET | bearer | `song_key` |
+| `comments` | GET/POST | bearer | GET `song_key, limit`; POST `song_key, body, parent_id?` + optional metadata |
+| `comment_delete` | POST | bearer | `id` |
+| `comment_like` | POST | bearer | `id, action` (`like`/`unlike`) |
+| `comment_report` | POST | bearer | `id, reason` |
+| `my_comments` | GET | bearer | — |
+| `trending` | GET | bearer | `days` (default 7) |
+| `search_songs` | GET | bearer | `q` |
+| `public_profile` | GET | bearer | `id` |
+| `follow` | POST | bearer | `user_id, action` (`follow`/`unfollow`) |
+| `following` / `followers` | GET | bearer | — |
+| `artist_follow` | POST | bearer | `artist, action` (`follow`/`unfollow`) |
+| `artist_follows` | GET | bearer | — |
+| `notifications_read` | POST | bearer | `id` or `all: true` |
+| `notifications_clear` | POST | bearer | — |
 
 Auth header: `Authorization: Bearer <token>` (`X-Allo-Token` also accepted).
 

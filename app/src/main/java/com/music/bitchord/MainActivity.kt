@@ -323,6 +323,7 @@ import com.music.bitchord.ui.theme.BitChordTheme
 import com.music.bitchord.ui.theme.rememberArtworkPalette
 import com.music.bitchord.data.canvas.AppleArtistArtRepository
 import com.music.bitchord.data.canvas.keyColors
+import com.music.bitchord.allo.AlloHubActivity
 import com.music.bitchord.allo.AlloLoginGate
 import com.music.bitchord.allo.AlloSession
 import com.music.bitchord.ui.theme.SystemBarIcons
@@ -758,6 +759,10 @@ private fun BitChordApp(
     val libraryResults by viewModel.libraryResults.collectAsStateWithLifecycle()
     val addonResults by viewModel.addonResults.collectAsStateWithLifecycle()
     val signedIn by viewModel.signedIn.collectAsStateWithLifecycle()
+    // allomusic's own account is what the app is gated on. The YouTube session
+    // is a separate, optional connection, so the welcome/party/library prompts
+    // must not tell a signed-up listener they are signed out.
+    val alloSignedIn by AlloSession.signedInState.collectAsStateWithLifecycle()
     val incomingJamInvite by JamInviteLink.pending.collectAsStateWithLifecycle()
     var activeJamInviteCode by rememberSaveable { mutableStateOf<String?>(null) }
     var activeJamInviteServer by rememberSaveable { mutableStateOf<String?>(null) }
@@ -776,8 +781,8 @@ private fun BitChordApp(
         navigator.reset(AppRoute.Settings, AppRoute.ListenTogether)
         JamInviteLink.handled()
     }
-    LaunchedEffect(signedIn, activeJamInviteCode) {
-        if (signedIn && activeJamInviteCode != null) {
+    LaunchedEffect(signedIn, alloSignedIn, activeJamInviteCode) {
+        if ((signedIn || alloSignedIn) && activeJamInviteCode != null) {
             navigator.pushAll(AppRoute.Settings, AppRoute.ListenTogether)
         }
     }
@@ -2792,7 +2797,7 @@ private fun BitChordApp(
                             WearOsScreen(contentPadding = listPadding)
                         } else if (pageRoute == AppRoute.ListenTogether) {
                             ListenTogetherScreen(
-                                signedIn = signedIn,
+                                signedIn = signedIn || alloSignedIn,
                                 inviteCode = activeJamInviteCode,
                                 inviteServer = activeJamInviteServer,
                                 onInviteHandled = {
@@ -3059,7 +3064,7 @@ private fun BitChordApp(
                                 currentSong = player.song,
                                 isPlaying = player.isPlaying,
                                 title = stringResource(R.string.listen_now),
-                                signedIn = signedIn,
+                                signedIn = signedIn || alloSignedIn,
                                 onSignIn = { webSession = WebSessionMode.SIGN_IN },
                                 onItemClick = { item, shelfTitle ->
                                     val song = shelfSong(item)
@@ -3308,7 +3313,7 @@ private fun BitChordApp(
                                 },
                             )
                             else -> LibraryScreen(
-                                signedIn = signedIn,
+                                signedIn = signedIn || alloSignedIn,
                                 state = libraryState,
                                 listState = libraryListState,
                                 onShelfItemClick = onLibraryItemClick,
@@ -4233,6 +4238,14 @@ private fun BitChordApp(
                     },
                 // The sheet stays up for a rating: it shows the new state
                 // in place, and people often thumb a song and then queue it.
+                onOpenAlloCommunity = if (alloSignedIn) {
+                    {
+                        songActions = null
+                        AlloHubActivity.startForSong(context, song)
+                    }
+                } else {
+                    null
+                },
                 onToggleLike = { viewModel.toggleLike(song.videoId) },
                 onToggleDislike = {
                     val previousStatus = viewModel.toggleDislike(song.videoId)

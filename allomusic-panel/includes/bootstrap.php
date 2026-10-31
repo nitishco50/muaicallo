@@ -341,3 +341,5 @@ function record_attempt(string $email, string $ip, bool $ok): void
 }
 
 require_once __DIR__ . '/signals.php';
+
+require_once __DIR__ . '/community.php';

@@ -403,12 +403,20 @@ if ($action === 'data_delete') {
 if ($action === 'notifications') {
     $user = require_api_user();
     $stmt = $pdo->prepare(
-        'SELECT id, title, body, created_at FROM notifications
+        'SELECT id, title, body, created_at, read_at FROM notifications
           WHERE user_id = ? OR user_id IS NULL
           ORDER BY id DESC LIMIT 50'
     );
     $stmt->execute([$user['id']]);
-    api_ok(['notifications' => $stmt->fetchAll()]);
+    $rows = $stmt->fetchAll();
+    $unread = $pdo->prepare(
+        'SELECT COUNT(*) FROM notifications WHERE user_id = ? AND read_at IS NULL'
+    );
+    $unread->execute([$user['id']]);
+    api_ok([
+        'notifications' => $rows,
+        'unread' => (int) $unread->fetchColumn(),
+    ]);
 }
 
 
@@ -460,9 +468,9 @@ if ($action === 'event') {
     ];
     $insert = $pdo->prepare(
         'INSERT INTO events
-            (user_id, type, track_id, title, artist, album, genre, source,
+            (user_id, type, track_id, title, artist, album, art_url, genre, source,
              duration_ms, listen_ms, extra, client_ts, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     $accepted = 0;
     $pdo->beginTransaction();
@@ -486,6 +494,7 @@ if ($action === 'event') {
                 substr((string) ($event['title'] ?? ''), 0, 255),
                 substr((string) ($event['artist'] ?? ''), 0, 255),
                 substr((string) ($event['album'] ?? ''), 0, 255),
+                substr((string) ($event['art_url'] ?? $event['thumbnail_url'] ?? ''), 0, 512),
                 substr((string) ($event['genre'] ?? ''), 0, 128),
                 substr((string) ($event['source'] ?? ''), 0, 32),
                 max(0, min(86400000, (int) ($event['duration_ms'] ?? 0))),
@@ -518,6 +527,600 @@ if ($action === 'signals') {
     $user = require_api_user();
     $rows = signals_fetch((int) $user['id']);
     api_ok(['signals' => $rows, 'count' => count($rows)]);
+}
+
+
+/* ------------------------------------------------- history and profile */
+
+if ($action === 'history') {
+    $user = require_api_user();
+    $days = community_clamp_int($_GET['days'] ?? 30, 1, 180, 30);
+    $limit = community_clamp_int($_GET['limit'] ?? 200, 1, 500, 200);
+    api_ok(community_history((int) $user['id'], $days, $limit));
+}
+
+if ($action === 'history_clear') {
+    if ($method !== 'POST') {
+        api_err('method', 'Use POST.', 405);
+    }
+    $user = require_api_user();
+    $days = community_clamp_int(body_json()['days'] ?? 30, 1, 180, 30);
+    $window = "created_at >= DATE_SUB(NOW(), INTERVAL $days DAY)";
+    $stmt = $pdo->prepare(
+        "DELETE FROM events WHERE user_id = ? AND type IN ('play', 'complete', 'skip', 'like', 'dislike', 'unlike', 'search') AND $window"
+    );
+    $stmt->execute([$user['id']]);
+    $deleted = $stmt->rowCount();
+    try {
+        signals_recompute((int) $user['id']);
+    } catch (Throwable $e) {
+        error_log('allomusic history_clear signals: ' . $e->getMessage());
+    }
+    api_ok(['deleted' => $deleted, 'days' => $days]);
+}
+
+if ($action === 'profile_stats') {
+    $user = require_api_user();
+    $history = community_history((int) $user['id'], 30, 1);
+    unset($history['plays']);
+    $pdo = db();
+    $count = static function (string $sql, array $args) use ($pdo): int {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($args);
+        return (int) $stmt->fetchColumn();
+    };
+    $history['stats']['likes_given'] = $count(
+        'SELECT COUNT(*) FROM song_reactions WHERE user_id = ? AND value = 1',
+        [(int) $user['id']]
+    );
+    $history['stats']['dislikes_given'] = $count(
+        'SELECT COUNT(*) FROM song_reactions WHERE user_id = ? AND value = -1',
+        [(int) $user['id']]
+    );
+    $history['stats']['bookmarks'] = $count(
+        'SELECT COUNT(*) FROM song_bookmarks WHERE user_id = ?',
+        [(int) $user['id']]
+    );
+    $history['stats']['comments'] = $count(
+        "SELECT COUNT(*) FROM song_comments WHERE user_id = ? AND status = 'visible'",
+        [(int) $user['id']]
+    );
+    $history['stats']['comment_likes_received'] = $count(
+        'SELECT COUNT(*) FROM comment_likes cl JOIN song_comments c ON c.id = cl.comment_id WHERE c.user_id = ?',
+        [(int) $user['id']]
+    );
+    $history['stats']['followers'] = $count(
+        'SELECT COUNT(*) FROM user_follows WHERE following_id = ?',
+        [(int) $user['id']]
+    );
+    $history['stats']['following'] = $count(
+        'SELECT COUNT(*) FROM user_follows WHERE follower_id = ?',
+        [(int) $user['id']]
+    );
+    $history['stats']['artists_followed'] = $count(
+        'SELECT COUNT(*) FROM artist_follows WHERE user_id = ?',
+        [(int) $user['id']]
+    );
+    $history['user'] = [
+        'id' => (int) $user['id'],
+        'uuid' => $user['uuid'],
+        'name' => $user['name'],
+        'plan' => $user['plan'],
+        'created_at' => $user['created_at'],
+    ];
+    api_ok($history);
+}
+
+/* --------------------------------------------------------- reactions */
+
+if ($action === 'reaction') {
+    if ($method !== 'POST') {
+        api_err('method', 'Use POST.', 405);
+    }
+    $user = require_api_user();
+    $body = body_json();
+    $songKey = community_key($body['song_key'] ?? '');
+    if ($songKey === '') {
+        api_err('song_key', 'A song_key is required.');
+    }
+    $actionName = body_str($body, 'action', 'like');
+    if (!in_array($actionName, ['like', 'dislike', 'clear'], true)) {
+        api_err('action', 'action must be like, dislike or clear.');
+    }
+    if ($actionName === 'clear') {
+        $stmt = $pdo->prepare('DELETE FROM song_reactions WHERE user_id = ? AND song_key = ?');
+        $stmt->execute([$user['id'], $songKey]);
+    } else {
+        $value = $actionName === 'like' ? 1 : -1;
+        $meta = community_song_meta($songKey, $body);
+        $stmt = $pdo->prepare(
+            'INSERT INTO song_reactions
+                (user_id, song_key, value, title, artist, art_url, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE value = VALUES(value), title = VALUES(title),
+                artist = VALUES(artist), art_url = VALUES(art_url), updated_at = VALUES(updated_at)'
+        );
+        $stmt->execute([
+            $user['id'], $songKey, $value, $meta['title'], $meta['artist'], $meta['art_url'], now(), now(),
+        ]);
+        try {
+            signals_recompute((int) $user['id']);
+        } catch (Throwable $e) {
+            error_log('allomusic reaction signals: ' . $e->getMessage());
+        }
+    }
+    api_ok(community_song((int) $user['id'], $songKey, $body));
+}
+
+if ($action === 'reactions') {
+    $user = require_api_user();
+    $value = (string) ($_GET['value'] ?? 'like');
+    if (!in_array($value, ['like', 'dislike', 'all'], true)) {
+        $value = 'like';
+    }
+    $limit = community_clamp_int($_GET['limit'] ?? 100, 1, 300, 100);
+    $where = $value === 'all' ? '' : ' AND value = ' . ($value === 'like' ? 1 : -1);
+    $stmt = $pdo->prepare(
+        "SELECT song_key, value, title, artist, art_url, created_at, updated_at
+           FROM song_reactions WHERE user_id = ?$where ORDER BY updated_at DESC LIMIT $limit"
+    );
+    $stmt->execute([$user['id']]);
+    $rows = $stmt->fetchAll();
+    foreach ($rows as &$row) {
+        $row['my_reaction'] = (int) $row['value'] === 1 ? 'like' : 'dislike';
+        $row['value'] = (int) $row['value'];
+        $row += community_counts((string) $row['song_key']);
+    }
+    unset($row);
+    api_ok(['reactions' => $rows]);
+}
+
+/* ---------------------------------------------------------- bookmarks */
+
+if ($action === 'bookmark') {
+    if ($method !== 'POST') {
+        api_err('method', 'Use POST.', 405);
+    }
+    $user = require_api_user();
+    $body = body_json();
+    $songKey = community_key($body['song_key'] ?? '');
+    if ($songKey === '') {
+        api_err('song_key', 'A song_key is required.');
+    }
+    $actionName = body_str($body, 'action', 'toggle');
+    if (!in_array($actionName, ['add', 'remove', 'toggle'], true)) {
+        api_err('action', 'action must be add, remove or toggle.');
+    }
+    $stmt = $pdo->prepare('SELECT id FROM song_bookmarks WHERE user_id = ? AND song_key = ? LIMIT 1');
+    $stmt->execute([$user['id'], $songKey]);
+    $exists = (bool) $stmt->fetchColumn();
+    $want = $actionName === 'add' ? true : ($actionName === 'remove' ? false : !$exists);
+    if ($want && !$exists) {
+        $meta = community_song_meta($songKey, $body);
+        $pdo->prepare(
+            'INSERT INTO song_bookmarks (user_id, song_key, title, artist, art_url, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        )->execute([$user['id'], $songKey, $meta['title'], $meta['artist'], $meta['art_url'], now()]);
+    } elseif (!$want && $exists) {
+        $pdo->prepare('DELETE FROM song_bookmarks WHERE user_id = ? AND song_key = ?')
+            ->execute([$user['id'], $songKey]);
+    }
+    api_ok(community_song((int) $user['id'], $songKey, $body));
+}
+
+if ($action === 'bookmarks') {
+    $user = require_api_user();
+    $limit = community_clamp_int($_GET['limit'] ?? 100, 1, 300, 100);
+    $stmt = $pdo->prepare(
+        "SELECT song_key, title, artist, art_url, created_at
+           FROM song_bookmarks WHERE user_id = ? ORDER BY created_at DESC LIMIT $limit"
+    );
+    $stmt->execute([$user['id']]);
+    $rows = $stmt->fetchAll();
+    foreach ($rows as &$row) {
+        $row['bookmarked'] = true;
+        $row += community_counts((string) $row['song_key']);
+    }
+    unset($row);
+    api_ok(['bookmarks' => $rows]);
+}
+
+/* ----------------------------------------------------------- comments */
+
+if ($action === 'song') {
+    $user = require_api_user();
+    $songKey = community_key($_GET['song_key'] ?? '');
+    if ($songKey === '') {
+        api_err('song_key', 'A song_key is required.');
+    }
+    api_ok(['song' => community_song((int) $user['id'], $songKey)]);
+}
+
+if ($action === 'comments' && $method === 'GET') {
+    $user = require_api_user();
+    $songKey = community_key($_GET['song_key'] ?? '');
+    if ($songKey === '') {
+        api_err('song_key', 'A song_key is required.');
+    }
+    $limit = community_clamp_int($_GET['limit'] ?? 50, 1, 100, 50);
+    $offset = community_clamp_int($_GET['offset'] ?? 0, 0, 10000, 0);
+    $stmt = $pdo->prepare(
+        "SELECT c.id, c.song_key, c.parent_id, c.body, c.created_at, c.user_id, u.name AS user_name
+           FROM song_comments c JOIN users u ON u.id = c.user_id
+          WHERE c.song_key = ? AND c.status = 'visible'
+          ORDER BY c.id DESC LIMIT $limit OFFSET $offset"
+    );
+    $stmt->execute([$songKey]);
+    $rows = community_comment_rows((int) $user['id'], $stmt->fetchAll());
+    $count = $pdo->prepare(
+        "SELECT COUNT(*) FROM song_comments WHERE song_key = ? AND status = 'visible'"
+    );
+    $count->execute([$songKey]);
+    api_ok([
+        'comments' => $rows,
+        'count' => (int) $count->fetchColumn(),
+        'song' => community_song((int) $user['id'], $songKey),
+    ]);
+}
+
+if ($action === 'comments' && $method === 'POST') {
+    $user = require_api_user();
+    $body = body_json();
+    $songKey = community_key($body['song_key'] ?? '');
+    $text = trim((string) ($body['body'] ?? $body['comment'] ?? ''));
+    if ($songKey === '') {
+        api_err('song_key', 'A song_key is required.');
+    }
+    if ($text === '' || mb_strlen($text) > 1000) {
+        api_err('body', 'A comment must be 1 to 1000 characters.');
+    }
+    $recent = $pdo->prepare(
+        'SELECT COUNT(*) FROM song_comments WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)'
+    );
+    $recent->execute([$user['id']]);
+    if ((int) $recent->fetchColumn() >= 10) {
+        api_err('rate_limited', 'You are commenting too quickly. Wait a minute.', 429);
+    }
+    $parentId = isset($body['parent_id']) && is_numeric($body['parent_id'])
+        ? (int) $body['parent_id'] : null;
+    if ($parentId !== null) {
+        $parent = $pdo->prepare(
+            "SELECT id, user_id FROM song_comments WHERE id = ? AND song_key = ? AND status = 'visible' LIMIT 1"
+        );
+        $parent->execute([$parentId, $songKey]);
+        $parentRow = $parent->fetch();
+        if (!$parentRow) {
+            api_err('parent', 'That comment no longer exists.');
+        }
+    }
+    $meta = community_song_meta($songKey, $body);
+    $stmt = $pdo->prepare(
+        'INSERT INTO song_comments (user_id, song_key, parent_id, body, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, "visible", ?, ?)'
+    );
+    $stmt->execute([$user['id'], $songKey, $parentId, $text, now(), now()]);
+    $commentId = (int) $pdo->lastInsertId();
+
+    $title = $meta['title'] !== '' ? $meta['title'] : 'a song';
+    if ($parentId !== null && isset($parentRow) && (int) $parentRow['user_id'] !== (int) $user['id']) {
+        community_notify((int) $parentRow['user_id'], 'New reply to your comment', $text);
+    }
+    $others = $pdo->prepare(
+        "SELECT DISTINCT user_id FROM song_comments
+          WHERE song_key = ? AND user_id <> ? AND status = 'visible' ORDER BY id DESC LIMIT 20"
+    );
+    $others->execute([$songKey, (int) $user['id']]);
+    foreach ($others->fetchAll() as $other) {
+        if ($parentId !== null && (int) $other['user_id'] === (int) $parentRow['user_id']) {
+            continue;
+        }
+        community_notify((int) $other['user_id'], 'New comment on ' . $title, $text);
+    }
+
+    $stmt = $pdo->prepare(
+        "SELECT c.id, c.song_key, c.parent_id, c.body, c.created_at, c.user_id, u.name AS user_name
+           FROM song_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?"
+    );
+    $stmt->execute([$commentId]);
+    api_ok([
+        'comment' => community_comment_rows((int) $user['id'], $stmt->fetchAll())[0] ?? null,
+        'song' => community_song((int) $user['id'], $songKey, $body),
+    ]);
+}
+
+if ($action === 'comment_delete') {
+    if ($method !== 'POST') {
+        api_err('method', 'Use POST.', 405);
+    }
+    $user = require_api_user();
+    $commentId = community_clamp_int(body_json()['id'] ?? 0, 0, PHP_INT_MAX, 0);
+    $stmt = $pdo->prepare('DELETE FROM song_comments WHERE id = ? AND user_id = ?');
+    $stmt->execute([$commentId, $user['id']]);
+    if ($stmt->rowCount() === 0) {
+        api_err('not_found', 'Comment not found.', 404);
+    }
+    api_ok(['deleted' => true]);
+}
+
+if ($action === 'comment_like') {
+    if ($method !== 'POST') {
+        api_err('method', 'Use POST.', 405);
+    }
+    $user = require_api_user();
+    $body = body_json();
+    $commentId = community_clamp_int($body['id'] ?? 0, 0, PHP_INT_MAX, 0);
+    $like = body_str($body, 'action', 'like') !== 'unlike';
+    $stmt = $pdo->prepare(
+        "SELECT id, user_id FROM song_comments WHERE id = ? AND status = 'visible' LIMIT 1"
+    );
+    $stmt->execute([$commentId]);
+    $comment = $stmt->fetch();
+    if (!$comment) {
+        api_err('not_found', 'Comment not found.', 404);
+    }
+    if ($like) {
+        $pdo->prepare('INSERT IGNORE INTO comment_likes (comment_id, user_id, created_at) VALUES (?, ?, ?)')
+            ->execute([$commentId, $user['id'], now()]);
+        if ((int) $comment['user_id'] !== (int) $user['id']) {
+            community_notify((int) $comment['user_id'], 'Someone liked your comment', '');
+        }
+    } else {
+        $pdo->prepare('DELETE FROM comment_likes WHERE comment_id = ? AND user_id = ?')
+            ->execute([$commentId, $user['id']]);
+    }
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM comment_likes WHERE comment_id = ?');
+    $stmt->execute([$commentId]);
+    api_ok(['likes' => (int) $stmt->fetchColumn(), 'liked' => $like]);
+}
+
+if ($action === 'comment_report') {
+    if ($method !== 'POST') {
+        api_err('method', 'Use POST.', 405);
+    }
+    $user = require_api_user();
+    $body = body_json();
+    $commentId = community_clamp_int($body['id'] ?? 0, 0, PHP_INT_MAX, 0);
+    $reason = substr(trim(body_str($body, 'reason', '')), 0, 255);
+    $pdo->prepare(
+        'INSERT IGNORE INTO comment_reports (comment_id, user_id, reason, created_at) VALUES (?, ?, ?, ?)'
+    )->execute([$commentId, $user['id'], $reason, now()]);
+    api_ok(['reported' => true]);
+}
+
+if ($action === 'my_comments') {
+    $user = require_api_user();
+    $limit = community_clamp_int($_GET['limit'] ?? 100, 1, 300, 100);
+    $stmt = $pdo->prepare(
+        "SELECT c.id, c.song_key, c.parent_id, c.body, c.created_at, c.user_id, u.name AS user_name
+           FROM song_comments c JOIN users u ON u.id = c.user_id
+          WHERE c.user_id = ? AND c.status = 'visible'
+          ORDER BY c.id DESC LIMIT $limit"
+    );
+    $stmt->execute([$user['id']]);
+    api_ok(['comments' => community_comment_rows((int) $user['id'], $stmt->fetchAll())]);
+}
+
+/* ------------------------------------------------- community discovery */
+
+if ($action === 'trending') {
+    $user = require_api_user();
+    $days = community_clamp_int($_GET['days'] ?? 7, 1, 90, 7);
+    $limit = community_clamp_int($_GET['limit'] ?? 20, 1, 50, 20);
+    $since = date('Y-m-d H:i:s', time() - $days * 86400);
+    $sql = "SELECT song_key, MAX(NULLIF(title, '')) AS title, MAX(NULLIF(artist, '')) AS artist,
+                   MAX(NULLIF(art_url, '')) AS art_url, SUM(weight) AS score
+              FROM (
+                SELECT song_key, title, artist, art_url, 3 AS weight FROM song_reactions WHERE updated_at >= ?
+                UNION ALL
+                SELECT song_key, title, artist, art_url, 2 AS weight FROM song_bookmarks WHERE created_at >= ?
+                UNION ALL
+                SELECT song_key, '', '', '' AS art_url, 4 AS weight FROM song_comments
+                  WHERE status = 'visible' AND created_at >= ?
+                UNION ALL
+                SELECT track_id AS song_key, title, artist, art_url, 1 AS weight FROM events
+                  WHERE type = 'play' AND track_id <> '' AND created_at >= ?
+              ) AS activity
+             GROUP BY song_key ORDER BY score DESC LIMIT $limit";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$since, $since, $since, $since]);
+    $rows = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $key = (string) $row['song_key'];
+        $summary = community_song((int) $user['id'], $key, $row);
+        $summary['score'] = (int) $row['score'];
+        $rows[] = $summary;
+    }
+    api_ok(['days' => $days, 'songs' => $rows]);
+}
+
+if ($action === 'search_songs') {
+    $user = require_api_user();
+    $q = trim((string) ($_GET['q'] ?? ''));
+    if ($q === '') {
+        api_ok(['songs' => []]);
+    }
+    $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $q) . '%';
+    $limit = community_clamp_int($_GET['limit'] ?? 30, 1, 50, 30);
+    $stmt = $pdo->prepare(
+        "SELECT song_key, MAX(NULLIF(title, '')) AS title, MAX(NULLIF(artist, '')) AS artist,
+                MAX(NULLIF(art_url, '')) AS art_url
+           FROM (
+             SELECT song_key, title, artist, art_url FROM song_reactions
+             UNION ALL SELECT song_key, title, artist, art_url FROM song_bookmarks
+             UNION ALL SELECT track_id AS song_key, title, artist, art_url FROM events
+               WHERE type = 'play' AND track_id <> ''
+           ) AS songs
+          WHERE title LIKE ? OR artist LIKE ?
+          GROUP BY song_key LIMIT $limit"
+    );
+    $stmt->execute([$like, $like]);
+    $rows = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $rows[] = community_song((int) $user['id'], (string) $row['song_key'], $row);
+    }
+    api_ok(['query' => $q, 'songs' => $rows]);
+}
+
+/* -------------------------------------------------------------- follows */
+
+if ($action === 'public_profile') {
+    $user = require_api_user();
+    $targetId = community_clamp_int($_GET['id'] ?? 0, 0, PHP_INT_MAX, 0);
+    if ($targetId === 0) {
+        $uuid = substr(trim((string) ($_GET['uuid'] ?? '')), 0, 64);
+        if ($uuid === '') {
+            api_err('id', 'A user id or uuid is required.');
+        }
+        $stmt = $pdo->prepare('SELECT id FROM users WHERE uuid = ? LIMIT 1');
+        $stmt->execute([$uuid]);
+        $targetId = (int) $stmt->fetchColumn();
+    }
+    $stmt = $pdo->prepare('SELECT id, uuid, name, plan, status, created_at FROM users WHERE id = ? LIMIT 1');
+    $stmt->execute([$targetId]);
+    $target = $stmt->fetch();
+    if (!$target) {
+        api_err('not_found', 'User not found.', 404);
+    }
+    $history = community_history((int) $target['id'], 30, 1);
+    $topArtists = $history['top_artists'];
+    unset($history['plays'], $history['top_artists'], $history['daily']);
+    $pdo = db();
+    $count = static function (string $sql, array $args) use ($pdo): int {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($args);
+        return (int) $stmt->fetchColumn();
+    };
+    $stmt = $pdo->prepare(
+        "SELECT c.id, c.song_key, c.parent_id, c.body, c.created_at, c.user_id, u.name AS user_name
+           FROM song_comments c JOIN users u ON u.id = c.user_id
+          WHERE c.user_id = ? AND c.status = 'visible' ORDER BY c.id DESC LIMIT 10"
+    );
+    $stmt->execute([(int) $target['id']]);
+    $comments = community_comment_rows((int) $user['id'], $stmt->fetchAll());
+    $follow = $pdo->prepare('SELECT 1 FROM user_follows WHERE follower_id = ? AND following_id = ?');
+    $follow->execute([$user['id'], (int) $target['id']]);
+    api_ok([
+        'user' => [
+            'id' => (int) $target['id'],
+            'uuid' => $target['uuid'],
+            'name' => $target['name'],
+            'plan' => $target['plan'],
+            'created_at' => $target['created_at'],
+        ],
+        'stats' => $history['stats'] + [
+            'likes_given' => $count('SELECT COUNT(*) FROM song_reactions WHERE user_id = ? AND value = 1', [(int) $target['id']]),
+            'comments' => $count("SELECT COUNT(*) FROM song_comments WHERE user_id = ? AND status = 'visible'", [(int) $target['id']]),
+            'followers' => $count('SELECT COUNT(*) FROM user_follows WHERE following_id = ?', [(int) $target['id']]),
+            'following' => $count('SELECT COUNT(*) FROM user_follows WHERE follower_id = ?', [(int) $target['id']]),
+        ],
+        'top_artists' => $topArtists,
+        'comments' => $comments,
+        'following' => (bool) $follow->fetchColumn(),
+        'me' => (int) $target['id'] === (int) $user['id'],
+    ]);
+}
+
+if ($action === 'follow') {
+    if ($method !== 'POST') {
+        api_err('method', 'Use POST.', 405);
+    }
+    $user = require_api_user();
+    $body = body_json();
+    $targetId = community_clamp_int($body['user_id'] ?? 0, 0, PHP_INT_MAX, 0);
+    if ($targetId === (int) $user['id']) {
+        api_err('self', 'You cannot follow yourself.');
+    }
+    $stmt = $pdo->prepare('SELECT name FROM users WHERE id = ? LIMIT 1');
+    $stmt->execute([$targetId]);
+    $targetName = $stmt->fetchColumn();
+    if ($targetName === false) {
+        api_err('not_found', 'User not found.', 404);
+    }
+    if (body_str($body, 'action', 'follow') === 'unfollow') {
+        $pdo->prepare('DELETE FROM user_follows WHERE follower_id = ? AND following_id = ?')
+            ->execute([$user['id'], $targetId]);
+        api_ok(['following' => false]);
+    }
+    $pdo->prepare(
+        'INSERT IGNORE INTO user_follows (follower_id, following_id, created_at) VALUES (?, ?, ?)'
+    )->execute([$user['id'], $targetId, now()]);
+    community_notify($targetId, 'New follower', (string) ($user['name'] ?? 'A listener') . ' started following you.');
+    api_ok(['following' => true]);
+}
+
+if ($action === 'following' || $action === 'followers') {
+    $user = require_api_user();
+    $mine = $action === 'following';
+    if ($mine) {
+        $stmt = $pdo->prepare(
+            'SELECT u.id, u.uuid, u.name, f.created_at FROM user_follows f
+               JOIN users u ON u.id = f.following_id WHERE f.follower_id = ? ORDER BY f.created_at DESC LIMIT 200'
+        );
+        $stmt->execute([$user['id']]);
+    } else {
+        $stmt = $pdo->prepare(
+            'SELECT u.id, u.uuid, u.name, f.created_at FROM user_follows f
+               JOIN users u ON u.id = f.follower_id WHERE f.following_id = ? ORDER BY f.created_at DESC LIMIT 200'
+        );
+        $stmt->execute([$user['id']]);
+    }
+    api_ok(['users' => $stmt->fetchAll()]);
+}
+
+if ($action === 'artist_follow') {
+    if ($method !== 'POST') {
+        api_err('method', 'Use POST.', 405);
+    }
+    $user = require_api_user();
+    $body = body_json();
+    $artist = substr(trim(body_str($body, 'artist')), 0, 191);
+    if ($artist === '') {
+        api_err('artist', 'An artist name is required.');
+    }
+    if (body_str($body, 'action', 'follow') === 'unfollow') {
+        $pdo->prepare('DELETE FROM artist_follows WHERE user_id = ? AND artist = ?')
+            ->execute([$user['id'], $artist]);
+        api_ok(['following' => false, 'artist' => $artist]);
+    }
+    $pdo->prepare(
+        'INSERT IGNORE INTO artist_follows (user_id, artist, created_at) VALUES (?, ?, ?)'
+    )->execute([$user['id'], $artist, now()]);
+    api_ok(['following' => true, 'artist' => $artist]);
+}
+
+if ($action === 'artist_follows') {
+    $user = require_api_user();
+    $stmt = $pdo->prepare('SELECT artist, created_at FROM artist_follows WHERE user_id = ? ORDER BY created_at DESC');
+    $stmt->execute([$user['id']]);
+    api_ok(['artists' => $stmt->fetchAll()]);
+}
+
+/* ------------------------------------------------------ notifications */
+
+if ($action === 'notifications_read') {
+    if ($method !== 'POST') {
+        api_err('method', 'Use POST.', 405);
+    }
+    $user = require_api_user();
+    $body = body_json();
+    if (!empty($body['all'])) {
+        $pdo->prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL')
+            ->execute([now(), $user['id']]);
+    } else {
+        $id = community_clamp_int($body['id'] ?? 0, 0, PHP_INT_MAX, 0);
+        $pdo->prepare('UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ?')
+            ->execute([now(), $id, $user['id']]);
+    }
+    api_ok(['read' => true]);
+}
+
+if ($action === 'notifications_clear') {
+    if ($method !== 'POST') {
+        api_err('method', 'Use POST.', 405);
+    }
+    $user = require_api_user();
+    $pdo->prepare('DELETE FROM notifications WHERE user_id = ?')->execute([$user['id']]);
+    api_ok(['cleared' => true]);
 }
 
 api_err('unknown_action', 'Unknown action: ' . $action, 404);

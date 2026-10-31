@@ -33,6 +33,13 @@ object AlloSession {
     @Volatile var name: String? = null
         private set
 
+    /** Server id of the account, used by follows and public profiles. */
+    @Volatile var userId: Long? = null
+        private set
+
+    @Volatile var uuid: String? = null
+        private set
+
     private val _signedIn = MutableStateFlow(false)
 
     /** Recomposes the gate when the token is written or cleared. */
@@ -51,21 +58,27 @@ object AlloSession {
             token = store.getString("token", null)
             email = store.getString("email", null)
             name = store.getString("name", null)
+            userId = store.getString("user_id", null)?.toLongOrNull()
+            uuid = store.getString("uuid", null)
             _signedIn.value = !token.isNullOrBlank()
         }
     }
 
     val isSignedIn: Boolean get() = !token.isNullOrBlank()
 
-    fun save(token: String, email: String, name: String) {
+    fun save(token: String, email: String, name: String, userId: Long? = null, uuid: String? = null) {
         this.token = token
         this.email = email
         this.name = name
+        this.userId = userId
+        this.uuid = uuid
         _signedIn.value = true
         prefs?.edit()
             ?.putString("token", token)
             ?.putString("email", email)
             ?.putString("name", name)
+            ?.putString("user_id", userId?.toString())
+            ?.putString("uuid", uuid)
             ?.apply()
     }
 
@@ -79,9 +92,12 @@ object AlloSession {
         token = null
         email = null
         name = null
+        userId = null
+        uuid = null
         _signedIn.value = false
         AlloEvents.clear()
-        prefs?.edit()?.remove("token")?.remove("email")?.remove("name")?.apply()
+        prefs?.edit()?.remove("token")?.remove("email")?.remove("name")
+            ?.remove("user_id")?.remove("uuid")?.apply()
     }
 
     fun device(context: Context): AlloApi.Device {
